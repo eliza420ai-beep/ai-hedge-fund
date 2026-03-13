@@ -2,9 +2,24 @@
 
 Maximize Sharpe for healthcare by tuning `params_healthcare.py`.
 
+**Default mode:** Use the safe loop profile below unless explicitly running fast supervised exploration.
+
 **Baseline to beat:** `val_sharpe=0.3864, val_return=+12.19%, OOS=2.71`
 
 ```bash
 poetry run python -m autoresearch.evaluate --params autoresearch.params_healthcare
 poetry run python -m autoresearch.evaluate --params autoresearch.params_healthcare --start 2025-08-01 --end 2026-03-07
+```
+
+## Safe Loop Defaults (Recommended)
+
+Use the hardened loop for unattended runs:
+
+```bash
+poetry run python -m autoresearch.run_autoresearch_loop \
+  --sector healthcare \
+  --iterations 80 \
+  --confirm-runs 3 \
+  --min-delta 0.005 \
+  --require-oos-improvement
 ```

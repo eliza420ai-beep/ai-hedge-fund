@@ -921,6 +921,26 @@ The three files that matter:
 - **`autoresearch/evaluate.py`** — Runs one experiment, prints `val_sharpe=X.XXXX`, appends to `results.tsv`.
 - **`autoresearch/program.md`** — Full instructions for the AI agent (hypothesis → change → measure → keep/revert).
 
+**Same pattern for other sectors.** The same “open program and run until I say stop” flow works for each sector’s program file. Each has its own params module and results log; the agent only edits that sector’s params and runs `evaluate` with the correct `--params` flag.
+
+| Instruction | What runs |
+|-------------|-----------|
+| *"Open `autoresearch/program.md` and follow the instructions. Run experiments until I tell you to stop."* | Tech (AAPL, NVDA, …) → `params.py`, `results.tsv` |
+| *"Open `autoresearch/program_equipment.md` and follow the instructions. Run experiments until I tell you to stop."* | Equipment (AMAT, ASML, …) → `params_equipment.py`, `results_equipment.tsv` |
+| *"Open `autoresearch/program_eda.md` and follow the instructions. Run experiments until I tell you to stop."* | EDA (SNPS, CDNS, …) → `params_eda.py`, `results_eda.tsv` |
+| *"Open `autoresearch/program_energy.md` and follow the instructions. Run experiments until I tell you to stop."* | Energy → `params_energy.py`, `results_energy.tsv` |
+| *"Open `autoresearch/program_foundry.md` and follow the instructions. Run experiments until I tell you to stop."* | Foundry → `params_foundry.py`, `results_foundry.tsv` |
+| *"Open `autoresearch/program_healthcare.md` and follow the instructions. Run experiments until I tell you to stop."* | Healthcare → `params_healthcare.py`, `results_healthcare.tsv` |
+| *"Open `autoresearch/program_memory.md` and follow the instructions. Run experiments until I tell you to stop."* | Memory → `params_memory.py`, `results_memory.tsv` |
+| *"Open `autoresearch/program_networking.md` and follow the instructions. Run experiments until I tell you to stop."* | Networking → `params_networking.py`, `results_networking.tsv` |
+| *"Open `autoresearch/program_photonics.md` and follow the instructions. Run experiments until I tell you to stop."* | Photonics → `params_photonics.py`, `results_photonics.tsv` |
+| *"Open `autoresearch/program_platform.md` and follow the instructions. Run experiments until I tell you to stop."* | Platform → `params_platform.py`, `results_platform.tsv` |
+| *"Open `autoresearch/program_power_infra.md` and follow the instructions. Run experiments until I tell you to stop."* | Power infra → `params_power_infra.py`, `results_power_infra.tsv` |
+| *"Open `autoresearch/program_tech.md` and follow the instructions. Run experiments until I tell you to stop."* | Tech (sector-specific) → `params_tech.py`, `results_tech.tsv` |
+| *"Open `autoresearch/program_tokenization.md` and follow the instructions. Run experiments until I tell you to stop."* | Tokenization → `params_tokenization.py`, `results_tokenization.tsv` |
+
+**Different: `program_portfolio.md`.** That file is not a param-tuning loop. It describes how to run the **combined portfolio backtest** (equal / sharpe / oos weights, `--exclude`, OOS window). Use it when you want to compare portfolio-level results, e.g. *"Open `autoresearch/program_portfolio.md` and run the portfolio backtest options described there."*
+
 ### Optional: full 18-agent signal cache
 
 The base mode only uses technical analyst signals (free, no LLM calls). To also tune how much weight each of the 18 analyst agents gets, run the full signal cache once:

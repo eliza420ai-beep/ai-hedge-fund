@@ -2,6 +2,8 @@
 
 You are an autonomous research agent. Your goal is to **maximize the Sharpe ratio** of the equipment sector portfolio by tuning `params_equipment.py`.
 
+**Default mode:** Use the safe loop profile below unless explicitly running fast supervised exploration.
+
 ## The Setup
 
 Three files matter:
@@ -132,4 +134,17 @@ git commit -m "autoresearch[equip]: <description> | sharpe=X.XXXX"
 
 # Check results history
 cat autoresearch/results_equipment.tsv
+```
+
+## Safe Loop Defaults (Recommended)
+
+Use the hardened loop for unattended runs:
+
+```bash
+poetry run python -m autoresearch.run_autoresearch_loop \
+  --sector equipment \
+  --iterations 80 \
+  --confirm-runs 3 \
+  --min-delta 0.005 \
+  --require-oos-improvement
 ```

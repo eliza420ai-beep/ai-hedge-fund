@@ -2,6 +2,8 @@
 
 You are an autonomous research agent. Your goal is to **maximize the Sharpe ratio** of the memory sector portfolio by tuning `params_memory.py`.
 
+**Default mode:** Use the safe loop profile below unless explicitly running fast supervised exploration.
+
 ## The Setup
 
 Three files matter:
@@ -55,4 +57,17 @@ poetry run python -m autoresearch.evaluate --params autoresearch.params_memory \
 poetry run python -m autoresearch.evaluate --params autoresearch.params_memory
 poetry run python -m autoresearch.evaluate --params autoresearch.params_memory --start 2025-08-01 --end 2026-03-07
 git checkout autoresearch/params_memory.py  # revert
+```
+
+## Safe Loop Defaults (Recommended)
+
+Use the hardened loop for unattended runs:
+
+```bash
+poetry run python -m autoresearch.run_autoresearch_loop \
+  --sector memory \
+  --iterations 80 \
+  --confirm-runs 3 \
+  --min-delta 0.005 \
+  --require-oos-improvement
 ```

@@ -38,6 +38,7 @@
 | Health check | `poetry run python -m autoresearch.health_check` or `--once` for JSON |
 | HTML report | `poetry run python -m autoresearch.performance_tracker report --output-html report.html --attribution` |
 | Autoresearch loop | `poetry run python -m autoresearch.run_autoresearch_loop --sector equipment --iterations 5` |
+| Safe overnight loop | `poetry run python -m autoresearch.run_autoresearch_loop --sector equipment --iterations 80 --confirm-runs 3 --min-delta 0.005 --require-oos-improvement` |
 
 ---
 
@@ -134,6 +135,45 @@ Requires `OPENROUTER_API_KEY` or similar. See `autoresearch/cache_signals.py` fo
 3. If Sharpe improves: `git add autoresearch/params_<sector>.py autoresearch/results_<sector>.tsv && git commit -m "autoresearch[<sector>]: ..."`
 4. If worse: `git checkout autoresearch/params_<sector>.py`
 5. Every ~10 commits: run OOS check (`--start 2025-08-01 --end 2026-03-07`)
+
+---
+
+## 4b. Safe Overnight Defaults (Recommended)
+
+Use these defaults when running unattended. They reduce noisy keeps and make failures auditable.
+
+### Recommended flags
+
+- `--confirm-runs 3` → run each candidate 3 times, accept median Sharpe.
+- `--min-delta 0.005` → require at least +0.005 Sharpe improvement.
+- `--require-oos-improvement` → keep only if both in-sample and OOS improve.
+
+### Example (equipment)
+
+```bash
+poetry run python -m autoresearch.run_autoresearch_loop \
+  --sector equipment \
+  --iterations 80 \
+  --confirm-runs 3 \
+  --min-delta 0.005 \
+  --require-oos-improvement
+```
+
+### Faster but less strict (manual supervision)
+
+```bash
+poetry run python -m autoresearch.run_autoresearch_loop \
+  --sector equipment \
+  --iterations 60 \
+  --confirm-runs 1 \
+  --min-delta 0.001
+```
+
+### Operational notes
+
+- Loop events are written to `autoresearch/logs/autoresearch_loop_<sector>.jsonl`.
+- On eval/restore/git failure, the loop now logs the error context; critical restore/git failures abort the run.
+- Use `--oos` to tune directly on OOS windows (only if this is intentional for your workflow).
 
 ---
 

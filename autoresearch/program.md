@@ -2,6 +2,8 @@
 
 You are an autonomous research agent. Your goal is to **maximize the Sharpe ratio** of a multi-agent hedge fund system by tuning its parameters.
 
+**Default mode:** Use the safe loop profile in this file unless you are explicitly running fast supervised exploration.
+
 ## The Setup
 
 There are three files that matter:
@@ -169,3 +171,18 @@ git checkout autoresearch/params.py
 git add autoresearch/params.py autoresearch/results.tsv
 git commit -m "autoresearch: <description> | sharpe=X.XXXX"
 ```
+
+## Safe Loop Defaults (Recommended)
+
+For unattended sessions, use the hardened loop:
+
+```bash
+poetry run python -m autoresearch.run_autoresearch_loop \
+  --sector tech \
+  --iterations 80 \
+  --confirm-runs 3 \
+  --min-delta 0.005 \
+  --require-oos-improvement
+```
+
+This requires repeated confirmation, minimum improvement, and OOS improvement before keeping changes.

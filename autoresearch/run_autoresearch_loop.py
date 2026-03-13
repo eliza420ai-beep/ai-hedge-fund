@@ -10,13 +10,19 @@ Usage:
 
 import argparse
 import importlib
+import json
 import random
+import re
 import subprocess
 import sys
+import time
+from datetime import datetime, timezone
+from statistics import median
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
+LOGS_DIR = PROJECT_ROOT / "autoresearch" / "logs"
 
 # Default technical indicators to tweak for sector params (e.g. equipment, tech).
 TWEAKABLE = [
@@ -51,6 +57,56 @@ def get_param_value(mod, name: str):
     return getattr(mod, name, None)
 
 
+def _iso_now() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def append_loop_event(sector: str, event: dict) -> None:
+    """Append structured loop events for postmortems and auditability."""
+    LOGS_DIR.mkdir(parents=True, exist_ok=True)
+    path = LOGS_DIR / f"autoresearch_loop_{sector}.jsonl"
+    payload = {"ts": _iso_now(), **event}
+    with open(path, "a") as f:
+        f.write(json.dumps(payload, default=str) + "\n")
+
+
+def run_cmd(
+    cmd: list[str],
+    *,
+    cwd: Path,
+    sector: str,
+    stage: str,
+    check: bool = False,
+    capture_output: bool = True,
+) -> subprocess.CompletedProcess:
+    """Run command and optionally fail fast with structured logs."""
+    result = subprocess.run(cmd, cwd=cwd, capture_output=capture_output, text=True)
+    if result.returncode != 0:
+        append_loop_event(
+            sector,
+            {
+                "event": "command_failed",
+                "stage": stage,
+                "cmd": cmd,
+                "returncode": result.returncode,
+                "stdout_tail": "\n".join(result.stdout.splitlines()[-20:]),
+                "stderr_tail": "\n".join(result.stderr.splitlines()[-20:]),
+            },
+        )
+        if check:
+            raise RuntimeError(f"Command failed at stage={stage}: {' '.join(cmd)}")
+    return result
+
+
+def format_value_like(original, candidate):
+    """Preserve int/float semantics when writing params values."""
+    if isinstance(original, int):
+        return str(int(round(candidate)))
+    if isinstance(original, float):
+        return repr(float(candidate))
+    return repr(candidate)
+
+
 def set_param_in_file(path: Path, name: str, value) -> bool:
     content = path.read_text()
     lines = content.splitlines()
@@ -68,20 +124,41 @@ def set_param_in_file(path: Path, name: str, value) -> bool:
     return True
 
 
-def run_eval(sector: str, oos: bool = False) -> float | None:
+def restore_param_file(params_path: Path, sector: str) -> bool:
+    rel = params_path.relative_to(PROJECT_ROOT)
+    result = run_cmd(
+        ["git", "restore", "--source=HEAD", "--worktree", "--", str(rel)],
+        cwd=PROJECT_ROOT,
+        sector=sector,
+        stage="restore_params",
+        check=False,
+    )
+    return result.returncode == 0
+
+
+def parse_val_sharpe(stdout: str) -> float | None:
+    """Parse only the canonical metric line: val_sharpe=<float>."""
+    pattern = re.compile(r"^val_sharpe=([-+]?\d+(?:\.\d+)?(?:[eE][-+]?\d+)?)$")
+    for line in stdout.splitlines():
+        m = pattern.match(line.strip())
+        if m:
+            try:
+                return float(m.group(1))
+            except ValueError:
+                return None
+    return None
+
+
+def run_eval(sector: str, oos: bool = False) -> tuple[float | None, subprocess.CompletedProcess, int]:
+    t0 = time.time()
     cmd = ["poetry", "run", "python", "-m", "autoresearch.evaluate", "--params", f"autoresearch.params_{sector}"]
     if oos:
         cmd.extend(["--start", "2025-08-01", "--end", "2026-03-07"])
-    result = subprocess.run(cmd, cwd=PROJECT_ROOT, capture_output=True, text=True)
+    result = run_cmd(cmd, cwd=PROJECT_ROOT, sector=sector, stage="eval", check=False)
+    elapsed_ms = int((time.time() - t0) * 1000)
     if result.returncode != 0:
-        return None
-    for line in result.stdout.splitlines():
-        if "val_sharpe=" in line or "sharpe=" in line:
-            try:
-                return float(line.split("=")[-1].strip())
-            except ValueError:
-                pass
-    return None
+        return None, result, elapsed_ms
+    return parse_val_sharpe(result.stdout), result, elapsed_ms
 
 
 def main():
@@ -90,6 +167,13 @@ def main():
     parser.add_argument("--iterations", type=int, default=10, help="Max iterations per run")
     parser.add_argument("--dry-run", action="store_true", help="Only run eval, no edits/commits")
     parser.add_argument("--oos", action="store_true", help="Use OOS window for eval")
+    parser.add_argument("--confirm-runs", type=int, default=1, help="Repeat eval N times and use median score")
+    parser.add_argument("--min-delta", type=float, default=1e-6, help="Minimum Sharpe improvement to accept")
+    parser.add_argument(
+        "--require-oos-improvement",
+        action="store_true",
+        help="When using in-sample eval, also require OOS Sharpe to improve before keep",
+    )
     args = parser.parse_args()
 
     sector = args.sector
@@ -99,19 +183,52 @@ def main():
         print(f"Params not found: {params_path}")
         return 1
 
-    mod = importlib.import_module(f"autoresearch.params_{sector}")
+    if args.confirm_runs < 1:
+        print("--confirm-runs must be >= 1")
+        return 1
+
     tweakables = SLEEVE_TWEAKABLE.get(sector, TWEAKABLE)
-    baseline = run_eval(sector, oos=args.oos)
+
+    baseline, baseline_proc, baseline_elapsed = run_eval(sector, oos=args.oos)
     if baseline is None:
         print("Baseline eval failed.")
+        append_loop_event(
+            sector,
+            {
+                "event": "baseline_failed",
+                "oos": args.oos,
+                "elapsed_ms": baseline_elapsed,
+                "stdout_tail": "\n".join(baseline_proc.stdout.splitlines()[-20:]),
+                "stderr_tail": "\n".join(baseline_proc.stderr.splitlines()[-20:]),
+            },
+        )
         return 1
     print(f"Baseline Sharpe: {baseline:.4f}")
+    append_loop_event(
+        sector,
+        {
+            "event": "baseline",
+            "oos": args.oos,
+            "sharpe": baseline,
+            "elapsed_ms": baseline_elapsed,
+        },
+    )
 
     if args.dry_run:
         return 0
 
     best = baseline
+    best_oos = None
+    if args.require_oos_improvement and not args.oos:
+        base_oos, _, _ = run_eval(sector, oos=True)
+        if base_oos is None:
+            print("OOS baseline eval failed; cannot enforce --require-oos-improvement")
+            return 1
+        best_oos = base_oos
+        print(f"Baseline OOS Sharpe: {best_oos:.4f}")
+
     for i in range(args.iterations):
+        mod = importlib.reload(importlib.import_module(f"autoresearch.params_{sector}"))
         tweak = random.choice(tweakables)
         name, lo, hi, step = tweak
         val = get_param_value(mod, name)
@@ -121,30 +238,151 @@ def main():
         new_val = max(lo, min(hi, val + delta))
         if new_val == val:
             continue
-        if not set_param_in_file(params_path, name, new_val):
+        if not set_param_in_file(params_path, name, format_value_like(val, new_val)):
             continue
-        sharpe = run_eval(sector, oos=args.oos)
-        if sharpe is None:
-            subprocess.run(["git", "checkout", str(params_path)], cwd=PROJECT_ROOT, capture_output=True)
-            mod = importlib.reload(importlib.import_module(f"autoresearch.params_{sector}"))
+
+        run_scores: list[float] = []
+        last_proc = None
+        elapsed_total_ms = 0
+        for _ in range(args.confirm_runs):
+            sharpe, proc, elapsed_ms = run_eval(sector, oos=args.oos)
+            last_proc = proc
+            elapsed_total_ms += elapsed_ms
+            if sharpe is None:
+                break
+            run_scores.append(sharpe)
+
+        if len(run_scores) != args.confirm_runs:
+            restore_ok = restore_param_file(params_path, sector)
+            append_loop_event(
+                sector,
+                {
+                    "event": "eval_failed_reverted",
+                    "iter": i + 1,
+                    "param": name,
+                    "old_value": val,
+                    "new_value": new_val,
+                    "restore_ok": restore_ok,
+                    "elapsed_total_ms": elapsed_total_ms,
+                    "stdout_tail": "\n".join((last_proc.stdout if last_proc else "").splitlines()[-20:]),
+                    "stderr_tail": "\n".join((last_proc.stderr if last_proc else "").splitlines()[-20:]),
+                },
+            )
+            if not restore_ok:
+                print("CRITICAL: failed to restore params after eval failure. Aborting.")
+                return 2
             continue
-        if sharpe > best:
-            best = sharpe
-            subprocess.run(
-                ["git", "add", str(params_path), str(results_path)],
-                cwd=PROJECT_ROOT,
-                capture_output=True,
+
+        sharpe_med = float(median(run_scores))
+        accepted = sharpe_med > (best + args.min_delta)
+
+        candidate_oos = None
+        if accepted and args.require_oos_improvement and not args.oos:
+            candidate_oos, proc_oos, oos_elapsed_ms = run_eval(sector, oos=True)
+            elapsed_total_ms += oos_elapsed_ms
+            if candidate_oos is None:
+                accepted = False
+                append_loop_event(
+                    sector,
+                    {
+                        "event": "oos_eval_failed",
+                        "iter": i + 1,
+                        "param": name,
+                        "old_value": val,
+                        "new_value": new_val,
+                        "stdout_tail": "\n".join(proc_oos.stdout.splitlines()[-20:]),
+                        "stderr_tail": "\n".join(proc_oos.stderr.splitlines()[-20:]),
+                    },
+                )
+            elif best_oos is not None and candidate_oos <= (best_oos + args.min_delta):
+                accepted = False
+
+        if accepted:
+            try:
+                best = sharpe_med
+                if candidate_oos is not None:
+                    best_oos = candidate_oos
+                rel_params = params_path.relative_to(PROJECT_ROOT)
+                rel_results = results_path.relative_to(PROJECT_ROOT)
+                run_cmd(
+                    ["git", "add", str(rel_params), str(rel_results)],
+                    cwd=PROJECT_ROOT,
+                    sector=sector,
+                    stage="git_add",
+                    check=True,
+                )
+                run_cmd(
+                    ["git", "commit", "-m", f"autoresearch[{sector}]: {name}={format_value_like(val, new_val)} sharpe={sharpe_med:.4f}"],
+                    cwd=PROJECT_ROOT,
+                    sector=sector,
+                    stage="git_commit",
+                    check=True,
+                )
+            except RuntimeError:
+                restore_ok = restore_param_file(params_path, sector)
+                print("CRITICAL: git failure while keeping candidate; params restored, aborting.")
+                append_loop_event(
+                    sector,
+                    {
+                        "event": "git_failure_abort",
+                        "iter": i + 1,
+                        "param": name,
+                        "old_value": val,
+                        "new_value": new_val,
+                        "restore_ok": restore_ok,
+                    },
+                )
+                return 2
+            print(f"  Commit: {name}={format_value_like(val, new_val)} sharpe={sharpe_med:.4f}")
+            append_loop_event(
+                sector,
+                {
+                    "event": "accepted",
+                    "iter": i + 1,
+                    "param": name,
+                    "old_value": val,
+                    "new_value": new_val,
+                    "scores": run_scores,
+                    "median_score": sharpe_med,
+                    "best": best,
+                    "candidate_oos": candidate_oos,
+                    "best_oos": best_oos,
+                    "elapsed_total_ms": elapsed_total_ms,
+                },
             )
-            subprocess.run(
-                ["git", "commit", "-m", f"autoresearch[{sector}]: {name}={new_val} sharpe={sharpe:.4f}"],
-                cwd=PROJECT_ROOT,
-                capture_output=True,
-            )
-            print(f"  Commit: {name}={new_val} sharpe={sharpe:.4f}")
         else:
-            subprocess.run(["git", "checkout", str(params_path)], cwd=PROJECT_ROOT, capture_output=True)
-            mod = importlib.reload(importlib.import_module(f"autoresearch.params_{sector}"))
+            restore_ok = restore_param_file(params_path, sector)
+            if not restore_ok:
+                print("CRITICAL: failed to restore params after rejected candidate. Aborting.")
+                return 2
+            append_loop_event(
+                sector,
+                {
+                    "event": "rejected",
+                    "iter": i + 1,
+                    "param": name,
+                    "old_value": val,
+                    "new_value": new_val,
+                    "scores": run_scores,
+                    "median_score": sharpe_med,
+                    "best": best,
+                    "candidate_oos": candidate_oos,
+                    "best_oos": best_oos,
+                    "elapsed_total_ms": elapsed_total_ms,
+                },
+            )
     print(f"Best Sharpe: {best:.4f}")
+    append_loop_event(
+        sector,
+        {
+            "event": "loop_complete",
+            "iterations": args.iterations,
+            "best": best,
+            "best_oos": best_oos,
+            "confirm_runs": args.confirm_runs,
+            "min_delta": args.min_delta,
+        },
+    )
     return 0
 
 
