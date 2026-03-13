@@ -1027,11 +1027,22 @@ poetry run python -m autoresearch.sector_correlation --output autoresearch/logs/
 
 ## Hyperliquid Integration
 
-> **Status: Planned** — architecture designed, implementation in progress
+> **Status: Shipped (phase 1-4 execution bridge)** — dry-run-first AIHF -> agent-cli workflow is now in `main`.
 
 [Hyperliquid](https://hyperliquid.xyz) is a high-performance L1 blockchain purpose-built for on-chain perpetual futures trading. We chose it for on-chain transparency, deep liquidity, and API-first design.
 
-### AIHF -> agent-cli handoff scaffold (new)
+### What shipped
+
+- AIHF -> agent-cli handoff generator: `scripts/aihf_agent_cli_bridge.py`
+- Handoff -> `hl` command planner with netting + gross/net caps: `scripts/agent_cli_handoff_executor.py`
+- Fill reconciliation with idempotent position snapshot updates: `scripts/agent_cli_reconcile_fills.py`
+- End-to-end orchestrator: `scripts/agent_cli_pipeline.py`
+- Operator shortcuts: `Makefile` targets `hl-pipeline`, `hl-pipeline-with-fills`, `hl-pipeline-execute`
+- Example configs for symbol map, reference prices, current positions, and fills under `configs/`
+
+Safety defaults are intentional: all steps run in dry-run mode unless explicit execute flags are provided.
+
+### AIHF -> agent-cli handoff scaffold (shipped)
 
 To avoid premature direct order routing from AIHF, we now support a safe bridge that:
 
@@ -1055,7 +1066,7 @@ and prints the dry-run agent-cli invocation with `AIHF_HANDOFF_PATH` injected.
 
 To execute an agent-cli command for real, pass `--execute-agent-cli`. For safety, execution requires both `--symbol-map` and `--strict-symbol-map`.
 
-### Phase 2: handoff -> concrete `hl` commands (new)
+### Phase 2: handoff -> concrete `hl` commands (shipped)
 
 Once the handoff JSON exists, build a command plan from intents:
 
@@ -1092,7 +1103,7 @@ This will:
 - compute projected post-trade positions, and
 - enforce gross/net notional caps while building the command plan.
 
-### Phase 4: reconcile fills into persistent position state (new)
+### Phase 4: reconcile fills into persistent position state (shipped)
 
 After commands execute, reconcile fills so the next run nets against fresh positions:
 
@@ -1110,7 +1121,7 @@ What it does:
 - appends an immutable reconciliation journal row per applied fill,
 - enforces idempotency using processed fill IDs (safe to rerun same file).
 
-### One-command pipeline (new)
+### One-command pipeline (shipped)
 
 Run phases 1 -> 3 in one command (dry-run by default):
 
