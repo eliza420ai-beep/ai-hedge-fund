@@ -30,7 +30,7 @@ STRATEGY_WEIGHTS = {
 # Trend
 EMA_SHORT = 5
 EMA_MEDIUM = 13
-EMA_LONG = 34
+EMA_LONG = 32  # was 34; slightly faster long trend
 ADX_PERIOD = 24  # was 26; testing slightly shorter trend filter
 
 # Mean Reversion
