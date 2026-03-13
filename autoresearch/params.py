@@ -69,7 +69,7 @@ HURST_THRESHOLD = 0.4
 SKEW_THRESHOLD = 1.0
 
 # Final signal classification
-SIGNAL_BULLISH_THRESHOLD = 0.2
+SIGNAL_BULLISH_THRESHOLD = 0.19  # was 0.2; slightly more eager bullish
 SIGNAL_BEARISH_THRESHOLD = -0.2
 
 # ─────────────────────────────────────────────────────────────
