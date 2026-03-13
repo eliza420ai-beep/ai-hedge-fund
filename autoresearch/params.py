@@ -172,6 +172,12 @@ MIN_QUALITY_SCORE = 0.0  # require at least this quality score (0–1)
 INSIDER_NET_SELL_THRESHOLD = 0.0
 INSIDER_SIZE_MULTIPLIER = 0.5
 
+# News sentiment overlay (uses news_<FACTOR_CACHE_PREFIX>.json when FACTOR_CACHE_PREFIX set)
+USE_NEWS_FILTER = True
+NEWS_SENTIMENT_MIN = 0.0   # below this score (e.g. -0.2) down-weight by NEWS_SIZE_MULTIPLIER
+NEWS_SIZE_MULTIPLIER = 0.5
+NEWS_LOOKBACK_DAYS = 30
+
 # ─────────────────────────────────────────────────────────────
 # 8. WORLD MONITOR OVERLAY — Macro/Geopolitical (Scaffold, OFF by default)
 # ─────────────────────────────────────────────────────────────
@@ -185,4 +191,14 @@ WM_COUNTRY_RISK_CAP = 85.0
 
 # Maximum accepted staleness for cached World Monitor snapshot.
 WM_MAX_STALENESS_MINUTES = 180
+
+# ─────────────────────────────────────────────────────────────
+# 9. MACRO OVERLAY — Interest-rate regime (uses macro_rates.json)
+# ─────────────────────────────────────────────────────────────
+USE_MACRO_OVERLAY = True
+MACRO_TIGHTENING_SCALE = 0.85   # size down when Fed raising rates
+MACRO_EASING_SCALE = 1.05      # size up when Fed cutting
+MACRO_STABLE_SCALE = 1.0
+MACRO_LOOKBACK_MONTHS = 6
+MACRO_BANK = "FED"
 

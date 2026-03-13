@@ -19,6 +19,15 @@ import pandas as pd
 
 CACHE_DIR = Path(__file__).resolve().parent / "cache"
 
+# String sentiment labels -> numeric for averaging (bounded -1 to 1)
+_SENTIMENT_MAP = {
+    "positive": 1.0,
+    "negative": -1.0,
+    "neutral": 0.0,
+    "bearish": -0.7,
+    "bullish": 0.7,
+}
+
 
 @dataclass
 class FactorSnapshot:
@@ -32,6 +41,83 @@ class FactorSnapshot:
 
 _METRICS_DF: Dict[str, pd.DataFrame] | None = None
 _INSIDER_MAP: Dict[str, List[dict]] | None = None
+_NEWS_CACHE: Dict[str, Dict[str, List[dict]]] = {}
+
+
+def _load_macro_rates(cache_dir: Path | None = None) -> List[dict]:
+    """Load interest_rates from macro_rates.json; filter to FED, sort by date."""
+    directory = cache_dir or CACHE_DIR
+    path = directory / "macro_rates.json"
+    if not path.exists():
+        return []
+    try:
+        with open(path) as f:
+            raw = json.load(f)
+    except (json.JSONDecodeError, OSError):
+        return []
+    rates = raw.get("interest_rates", [])
+    bank = "FED"
+    filtered = [r for r in rates if r.get("bank") == bank and r.get("date") and r.get("rate") is not None]
+    try:
+        filtered.sort(key=lambda x: x["date"])
+    except (KeyError, TypeError):
+        return []
+    return filtered
+
+
+def get_macro_snapshot(
+    as_of_date: str,
+    rates: List[dict],
+    lookback_months: int = 6,
+) -> Optional[Dict[str, Any]]:
+    """
+    Return {rate, regime, prior_rate} for as_of_date.
+    Regime: tightening (rate > prior), easing (rate < prior), else stable.
+    """
+    if not rates:
+        return None
+    try:
+        as_dt = datetime.strptime(as_of_date, "%Y-%m-%d")
+    except ValueError:
+        return None
+    # Latest rate on or before as_of_date
+    current_rate = None
+    current_idx = None
+    for i, r in enumerate(rates):
+        try:
+            rd = datetime.strptime(r["date"], "%Y-%m-%d")
+            if rd.date() <= as_dt.date():
+                current_rate = float(r["rate"])
+                current_idx = i
+        except (KeyError, ValueError, TypeError):
+            continue
+    if current_rate is None or current_idx is None:
+        return None
+    # Prior rate ~lookback_months ago (by index, not calendar)
+    prior_idx = max(0, current_idx - lookback_months)
+    prior_rate = float(rates[prior_idx].get("rate", current_rate))
+    if current_rate > prior_rate:
+        regime = "tightening"
+    elif current_rate < prior_rate:
+        regime = "easing"
+    else:
+        regime = "stable"
+    return {"rate": current_rate, "regime": regime, "prior_rate": prior_rate}
+
+
+def apply_macro_overlay(snapshot: Optional[Dict[str, Any]], params: Any) -> tuple[bool, float]:
+    """Apply macro regime sizing overlay. Returns (allowed, size_multiplier)."""
+    if not getattr(params, "USE_MACRO_OVERLAY", False) or snapshot is None:
+        return True, 1.0
+    regime = snapshot.get("regime", "stable")
+    mult = 1.0
+    if regime == "tightening":
+        mult = float(getattr(params, "MACRO_TIGHTENING_SCALE", 0.85))
+    elif regime == "easing":
+        mult = float(getattr(params, "MACRO_EASING_SCALE", 1.05))
+    else:
+        mult = float(getattr(params, "MACRO_STABLE_SCALE", 1.0))
+    return True, mult
 
 
 def _load_metrics(prefix: str) -> Dict[str, pd.DataFrame]:
@@ -76,6 +162,103 @@ def _load_insider(prefix: str) -> Dict[str, List[dict]]:
 
     _INSIDER_MAP = raw
     return raw
+
+
+def _load_news(prefix: str) -> Dict[str, List[dict]]:
+    """Load news_<prefix>.json; return {ticker: [items]}."""
+    if prefix in _NEWS_CACHE:
+        return _NEWS_CACHE[prefix]
+    path = CACHE_DIR / f"news_{prefix}.json"
+    if not path.exists():
+        _NEWS_CACHE[prefix] = {}
+        return _NEWS_CACHE[prefix]
+    try:
+        with open(path) as f:
+            raw = json.load(f)
+    except (json.JSONDecodeError, OSError):
+        _NEWS_CACHE[prefix] = {}
+        return _NEWS_CACHE[prefix]
+    if not isinstance(raw, dict):
+        _NEWS_CACHE[prefix] = {}
+        return _NEWS_CACHE[prefix]
+    _NEWS_CACHE[prefix] = raw
+    return raw
+
+
+def _parse_news_date(date_val: Any) -> Optional[datetime]:
+    """Parse date from news item (YYYY-MM-DD or ISO string)."""
+    if date_val is None:
+        return None
+    s = str(date_val).strip()
+    if not s:
+        return None
+    for fmt in ("%Y-%m-%d", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%dT%H:%M:%SZ"):
+        try:
+            return datetime.strptime(s.replace("Z", "").split(".")[0], fmt)
+        except ValueError:
+            continue
+    try:
+        return datetime.fromisoformat(s.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+
+def _sentiment_to_number(sentiment: Any) -> Optional[float]:
+    """Map sentiment field to numeric in [-1, 1]. Returns None if unusable."""
+    if sentiment is None:
+        return None
+    if isinstance(sentiment, (int, float)):
+        return max(-1.0, min(1.0, float(sentiment)))
+    s = str(sentiment).strip().lower()
+    if s in _SENTIMENT_MAP:
+        return _SENTIMENT_MAP[s]
+    for key, val in _SENTIMENT_MAP.items():
+        if key in s:
+            return val
+    return None
+
+
+def compute_news_sentiment_snapshot(
+    ticker: str,
+    date_str: str,
+    prefix: str,
+    lookback_days: int = 30,
+) -> Optional[float]:
+    """
+    Average sentiment for ticker's news in (date_str - lookback_days, date_str].
+    Return value in [-1, 1], or None if no usable data.
+    """
+    data = _load_news(prefix)
+    items = data.get(ticker, [])
+    if not items:
+        return None
+    try:
+        as_of = datetime.strptime(date_str, "%Y-%m-%d")
+    except ValueError:
+        return None
+    cutoff = as_of - timedelta(days=lookback_days)
+    values: List[float] = []
+    for item in items:
+        d = _parse_news_date(item.get("date"))
+        if d is None or d.date() <= cutoff.date() or d.date() > as_of.date():
+            continue
+        v = _sentiment_to_number(item.get("sentiment"))
+        if v is not None:
+            values.append(v)
+    if not values:
+        return None
+    return sum(values) / len(values)
+
+
+def apply_news_rules(sentiment_score: Optional[float], params: Any) -> tuple[bool, float]:
+    """Apply news sentiment filter/sizing. Returns (allowed, size_multiplier)."""
+    if not getattr(params, "USE_NEWS_FILTER", False) or sentiment_score is None:
+        return True, 1.0
+    min_sentiment = getattr(params, "NEWS_SENTIMENT_MIN", 0.0)
+    mult = getattr(params, "NEWS_SIZE_MULTIPLIER", 0.5)
+    if sentiment_score < min_sentiment:
+        return True, mult
+    return True, 1.0
 
 
 def _latest_metrics_before(

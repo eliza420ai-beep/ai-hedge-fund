@@ -120,6 +120,29 @@ In our workflow, [Dexter](https://github.com/eliza420ai-beep/dexter) is the prim
        ```
   4. **Compare the four numbers the loop cares about** — `sharpe_ratio`, `sortino_ratio`, `max_drawdown`, `total_return_pct` — and decide whether the factor configuration is worth promoting to full-sleeve params. Current reference runs and interpretations live in `autoresearch/RUNBOOK.md`.
 
+#### Macro and news overlays
+
+The fast backtester can apply two optional overlays that use cached data without extra API calls:
+
+- **Macro overlay** — Reads `autoresearch/cache/macro_rates.json` (Fed interest rates). For each backtest date it infers a regime (tightening / easing / stable) and scales position size via `MACRO_TIGHTENING_SCALE`, `MACRO_EASING_SCALE`, `MACRO_STABLE_SCALE` in `autoresearch/params.py`. Controlled by `USE_MACRO_OVERLAY` (default `False`).
+- **News overlay** — Reads `autoresearch/cache/news_<FACTOR_CACHE_PREFIX>.json` (e.g. `news_tastytrade_sleeve_long.json`). For each ticker and date it averages sentiment in a lookback window and can down-weight positions when sentiment is below `NEWS_SENTIMENT_MIN`. Controlled by `USE_NEWS_FILTER` (default `False`) and only active when `FACTOR_CACHE_PREFIX` is set.
+
+**How to test macro and news:** Toggle **only** these flags on the **same** universe and params; otherwise you are comparing different strategies, not the effect of the overlays.
+
+- **Macro only** (default tech universe):
+  1. Ensure `autoresearch/cache/macro_rates.json` exists (e.g. `poetry run python -m autoresearch.cache_macro --start 2020-01-01 --end 2026-03-07`).
+  2. In `autoresearch/params.py` set `USE_MACRO_OVERLAY = True`.
+  3. Run `poetry run python -m autoresearch.evaluate`.
+  4. Compare to a run with `USE_MACRO_OVERLAY = False` (same command).
+- **News only** (sleeve with factor caches):
+  1. Use a params module that sets `FACTOR_CACHE_PREFIX` (e.g. `params_tastytrade_sleeve`) and ensure `news_<prefix>.json` exists in `autoresearch/cache/`.
+  2. In that params module set `USE_NEWS_FILTER = True`.
+  3. Run e.g. `poetry run python -m autoresearch.evaluate --params autoresearch.params_tastytrade_sleeve --prices-path prices_tastytrade_sleeve_long.json`.
+  4. Compare to a run with `USE_NEWS_FILTER = False` (same command and params).
+- **Both:** Enable both flags in the same params and run the same command; compare to the same setup with both off.
+
+**Pitfall:** Comparing a default tech run (e.g. `poetry run python -m autoresearch.evaluate`) to a sleeve run (e.g. `--params autoresearch.params_tastytrade_sleeve --prices-path prices_tastytrade_sleeve_long.json`) is **not** a test of macro or news. Those two runs use different tickers, different prices, and different factor settings; differences in Sharpe or drawdown come from the universe and factor filters, not from the macro/news overlays. To judge macro and news, keep universe and params fixed and only toggle `USE_MACRO_OVERLAY` and/or `USE_NEWS_FILTER`.
+
 ---
 
 ## Table of Contents

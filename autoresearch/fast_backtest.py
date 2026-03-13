@@ -352,6 +352,16 @@ class FastBacktestEngine:
                 # Fail-open: if WM cache is unavailable/parsing fails, keep strategy running.
                 self._wm_snapshot = None
 
+        self._macro_rates = None
+        if getattr(self.p, "USE_MACRO_OVERLAY", False):
+            try:
+                from autoresearch.factors import _load_macro_rates
+                self._macro_rates = _load_macro_rates(CACHE_DIR)
+                if not self._macro_rates:
+                    self._macro_rates = None
+            except Exception:
+                self._macro_rates = None
+
     def _get_price_slice(self, ticker: str, end_date: str, lookback_days: int = 200) -> pd.DataFrame:
         df = self.prices.get(ticker)
         if df is None or df.empty:
@@ -384,6 +394,17 @@ class FastBacktestEngine:
 
         for current_date in dates:
             date_str = current_date.strftime("%Y-%m-%d")
+
+            # Per-date macro overlay (once per date)
+            date_macro_mult = 1.0
+            if self._macro_rates is not None:
+                try:
+                    from autoresearch.factors import apply_macro_overlay, get_macro_snapshot
+                    lookback = getattr(self.p, "MACRO_LOOKBACK_MONTHS", 6)
+                    macro_snapshot = get_macro_snapshot(date_str, self._macro_rates, lookback_months=lookback)
+                    _, date_macro_mult = apply_macro_overlay(macro_snapshot, self.p)
+                except Exception:
+                    date_macro_mult = 1.0
 
             # Get current prices
             current_prices = {}
@@ -459,6 +480,16 @@ class FastBacktestEngine:
                         if not allowed:
                             # Skip making any new decision for this ticker on this date
                             continue
+                        # Optional news sentiment overlay
+                        try:
+                            news_lookback = getattr(self.p, "NEWS_LOOKBACK_DAYS", 30)
+                            news_score = self._factors.compute_news_sentiment_snapshot(
+                                t, date_str, self._factor_prefix, lookback_days=news_lookback
+                            )
+                            _, news_mult = self._factors.apply_news_rules(news_score, self.p)
+                            size_mult *= news_mult
+                        except Exception:
+                            pass
                     except Exception:
                         # If factor logic crashes, fall back to pure technicals
                         size_mult = 1.0
@@ -476,6 +507,9 @@ class FastBacktestEngine:
                     except Exception:
                         # Fail-open to avoid dropping trades on transient mapping issues.
                         pass
+
+                # Per-date macro overlay (applies once per date to all tickers)
+                size_mult *= date_macro_mult
 
                 # Risk management: compute position limits
                 ann_vol = self._estimate_volatility(t, date_str)
