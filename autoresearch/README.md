@@ -96,7 +96,7 @@ Inspired by [Karpathy's autoresearch](https://github.com/karpathy/autoresearch) 
 
 An autonomous loop that lets an AI agent run hundreds of experiments to optimize the AI Hedge Fund's trading parameters — technical indicators, strategy weights, risk limits, analyst trust, and portfolio construction rules — while you sleep.
 
-The metric is **Sharpe ratio**. The agent tunes `params.py`. Everything else is fixed.
+The metric is **Sharpe ratio**. The agent tunes `params.py`. Everything else is fixed. *(Caveats: normality, vol vs risk, look-ahead, regime shifts — see [CAVEATS.md](autoresearch/CAVEATS.md).)*
 
 ```
 ╔═════════════════════════════════════════════════════╗

@@ -19,11 +19,14 @@
 
 # Autoresearch Runbook — Reproducibility & Operations
 
+**Caveats:** Backtest metrics (Sharpe, etc.) assume normality and have known limits (vol vs risk, look-ahead, regime shifts). See **[CAVEATS.md](CAVEATS.md)** for what every quant knows and how this repo mitigates.
+
 ## Quick Reference
 
 | Task | Command |
 |------|---------|
 | Run single sector eval | `poetry run python -m autoresearch.evaluate --params autoresearch.params_<sector>` |
+| Eval with skew/kurtosis | `poetry run python -m autoresearch.evaluate --params autoresearch.params_<sector> --tail-metrics` |
 | Run OOS check | `poetry run python -m autoresearch.evaluate --params autoresearch.params_<sector> --start 2025-08-01 --end 2026-03-07` |
 | Run portfolio backtest | `poetry run python -m autoresearch.portfolio_backtest --weights oos` |
 | Paper trading (execute) | `poetry run python -m autoresearch.paper_trading --execute --state-path .paper_broker_state.json` |
@@ -147,6 +150,7 @@ Use these defaults when running unattended. They reduce noisy keeps and make fai
 - `--confirm-runs 3` → run each candidate 3 times, accept median Sharpe.
 - `--min-delta 0.005` → require at least +0.005 Sharpe improvement.
 - `--require-oos-improvement` → keep only if both in-sample and OOS improve.
+- By default the loop also **rejects if max drawdown worsened** (trust max_dd; see CAVEATS.md). Use `--no-require-max-dd-no-worse` to disable; `--max-dd-tolerance 1.0` sets the allowed worsening in percentage points.
 
 ### Example (equipment)
 

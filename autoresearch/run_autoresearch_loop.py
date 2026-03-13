@@ -149,7 +149,21 @@ def parse_val_sharpe(stdout: str) -> float | None:
     return None
 
 
-def run_eval(sector: str, oos: bool = False) -> tuple[float | None, subprocess.CompletedProcess, int]:
+def parse_val_max_dd(stdout: str) -> float | None:
+    """Parse val_max_dd=<float> (signed, e.g. -17.67). Used for 'trust max_dd' check."""
+    pattern = re.compile(r"^val_max_dd=([-+]?\d+(?:\.\d+)?(?:[eE][-+]?\d+)?)$")
+    for line in stdout.splitlines():
+        m = pattern.match(line.strip())
+        if m:
+            try:
+                return float(m.group(1))
+            except ValueError:
+                return None
+    return None
+
+
+def run_eval(sector: str, oos: bool = False) -> tuple[float | None, float | None, subprocess.CompletedProcess, int]:
+    """Return (sharpe, max_dd, proc, elapsed_ms). max_dd is None if parse fails."""
     t0 = time.time()
     cmd = ["poetry", "run", "python", "-m", "autoresearch.evaluate", "--params", f"autoresearch.params_{sector}"]
     if oos:
@@ -157,8 +171,8 @@ def run_eval(sector: str, oos: bool = False) -> tuple[float | None, subprocess.C
     result = run_cmd(cmd, cwd=PROJECT_ROOT, sector=sector, stage="eval", check=False)
     elapsed_ms = int((time.time() - t0) * 1000)
     if result.returncode != 0:
-        return None, result, elapsed_ms
-    return parse_val_sharpe(result.stdout), result, elapsed_ms
+        return None, None, result, elapsed_ms
+    return parse_val_sharpe(result.stdout), parse_val_max_dd(result.stdout), result, elapsed_ms
 
 
 def main():
@@ -173,6 +187,24 @@ def main():
         "--require-oos-improvement",
         action="store_true",
         help="When using in-sample eval, also require OOS Sharpe to improve before keep",
+    )
+    parser.add_argument(
+        "--require-max-dd-no-worse",
+        action="store_true",
+        default=True,
+        help="Reject candidate if in-sample max drawdown worsened (default: True; see CAVEATS.md)",
+    )
+    parser.add_argument(
+        "--no-require-max-dd-no-worse",
+        action="store_false",
+        dest="require_max_dd_no_worse",
+        help="Disable reject-when-max-dd-worsens check",
+    )
+    parser.add_argument(
+        "--max-dd-tolerance",
+        type=float,
+        default=1.0,
+        help="Reject if candidate max_dd < best - tolerance (percentage points; default 1.0)",
     )
     args = parser.parse_args()
 
@@ -189,7 +221,7 @@ def main():
 
     tweakables = SLEEVE_TWEAKABLE.get(sector, TWEAKABLE)
 
-    baseline, baseline_proc, baseline_elapsed = run_eval(sector, oos=args.oos)
+    baseline, baseline_max_dd, baseline_proc, baseline_elapsed = run_eval(sector, oos=args.oos)
     if baseline is None:
         print("Baseline eval failed.")
         append_loop_event(
@@ -204,12 +236,15 @@ def main():
         )
         return 1
     print(f"Baseline Sharpe: {baseline:.4f}")
+    if baseline_max_dd is not None:
+        print(f"Baseline max DD: {baseline_max_dd:.2f}%")
     append_loop_event(
         sector,
         {
             "event": "baseline",
             "oos": args.oos,
             "sharpe": baseline,
+            "max_dd": baseline_max_dd,
             "elapsed_ms": baseline_elapsed,
         },
     )
@@ -218,9 +253,10 @@ def main():
         return 0
 
     best = baseline
+    best_max_dd = baseline_max_dd  # more negative = worse
     best_oos = None
     if args.require_oos_improvement and not args.oos:
-        base_oos, _, _ = run_eval(sector, oos=True)
+        base_oos, _, _, _ = run_eval(sector, oos=True)
         if base_oos is None:
             print("OOS baseline eval failed; cannot enforce --require-oos-improvement")
             return 1
@@ -245,7 +281,7 @@ def main():
         last_proc = None
         elapsed_total_ms = 0
         for _ in range(args.confirm_runs):
-            sharpe, proc, elapsed_ms = run_eval(sector, oos=args.oos)
+            sharpe, _, proc, elapsed_ms = run_eval(sector, oos=args.oos)
             last_proc = proc
             elapsed_total_ms += elapsed_ms
             if sharpe is None:
@@ -278,7 +314,7 @@ def main():
 
         candidate_oos = None
         if accepted and args.require_oos_improvement and not args.oos:
-            candidate_oos, proc_oos, oos_elapsed_ms = run_eval(sector, oos=True)
+            candidate_oos, _, proc_oos, oos_elapsed_ms = run_eval(sector, oos=True)
             elapsed_total_ms += oos_elapsed_ms
             if candidate_oos is None:
                 accepted = False
@@ -297,11 +333,35 @@ def main():
             elif best_oos is not None and candidate_oos <= (best_oos + args.min_delta):
                 accepted = False
 
+        # Trust max_dd: reject if drawdown worsened (more negative) beyond tolerance
+        if accepted and args.require_max_dd_no_worse and best_max_dd is not None and last_proc is not None:
+            candidate_max_dd = parse_val_max_dd(last_proc.stdout)
+            if candidate_max_dd is not None and candidate_max_dd < best_max_dd - args.max_dd_tolerance:
+                accepted = False
+                append_loop_event(
+                    sector,
+                    {
+                        "event": "rejected_max_dd_worse",
+                        "iter": i + 1,
+                        "param": name,
+                        "old_value": val,
+                        "new_value": new_val,
+                        "median_score": sharpe_med,
+                        "candidate_max_dd": candidate_max_dd,
+                        "best_max_dd": best_max_dd,
+                        "tolerance": args.max_dd_tolerance,
+                    },
+                )
+
         if accepted:
             try:
                 best = sharpe_med
                 if candidate_oos is not None:
                     best_oos = candidate_oos
+                if last_proc is not None:
+                    cand_dd = parse_val_max_dd(last_proc.stdout)
+                    if cand_dd is not None:
+                        best_max_dd = cand_dd
                 rel_params = params_path.relative_to(PROJECT_ROOT)
                 rel_results = results_path.relative_to(PROJECT_ROOT)
                 run_cmd(
@@ -372,12 +432,15 @@ def main():
                 },
             )
     print(f"Best Sharpe: {best:.4f}")
+    if best_max_dd is not None:
+        print(f"Best max DD: {best_max_dd:.2f}%")
     append_loop_event(
         sector,
         {
             "event": "loop_complete",
             "iterations": args.iterations,
             "best": best,
+            "best_max_dd": best_max_dd,
             "best_oos": best_oos,
             "confirm_runs": args.confirm_runs,
             "min_delta": args.min_delta,

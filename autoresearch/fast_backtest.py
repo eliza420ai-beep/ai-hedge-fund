@@ -574,6 +574,12 @@ class FastBacktestEngine:
         return cash, positions
 
     def _compute_metrics(self) -> dict:
+        """
+        Compute backtest metrics. Sharpe assumes roughly normal returns; in fat-tail
+        regimes it can be misleading. We report Sortino and max_dd as sanity checks.
+        See autoresearch/CAVEATS.md for full caveats (normality, vol vs risk,
+        look-ahead bias, regime shifts).
+        """
         if len(self.portfolio_values) < 3:
             return {"sharpe_ratio": 0.0, "sortino_ratio": 0.0, "max_drawdown": 0.0, "total_return_pct": 0.0}
 
@@ -598,9 +604,17 @@ class FastBacktestEngine:
 
         total_ret = (values[-1] / values[0] - 1) * 100 if values[0] > 0 else 0.0
 
-        return {
+        out = {
             "sharpe_ratio": round(sharpe, 4),
             "sortino_ratio": round(sortino, 4),
             "max_drawdown": round(max_dd, 2),
             "total_return_pct": round(total_ret, 2),
         }
+        # Optional: skew/kurtosis for fat-tail awareness (not used in objective)
+        if len(returns) >= 3 and std_ex > 1e-12:
+            try:
+                out["returns_skew"] = round(float(returns.skew()), 4)
+                out["returns_kurtosis"] = round(float(returns.kurtosis()), 4)  # excess kurtosis
+            except Exception:
+                pass
+        return out

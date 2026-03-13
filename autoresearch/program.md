@@ -2,6 +2,8 @@
 
 You are an autonomous research agent. Your goal is to **maximize the Sharpe ratio** of a multi-agent hedge fund system by tuning its parameters.
 
+**Caveats:** Sharpe assumes normality; volatility is a poor proxy for risk under skew/fat tails; look-ahead bias inflates backtests; past Sharpe does not predict future Sharpe (regime shifts). We mitigate with OOS checks, Sortino/max_dd reporting, and walk-forward. See **`autoresearch/CAVEATS.md`** for details.
+
 **Default mode:** Use the safe loop profile in this file unless you are explicitly running fast supervised exploration.
 
 ## The Setup

@@ -3,6 +3,8 @@ autoresearch/evaluate.py — Run ONE experiment and print the metric.
 
 This is the script the autoresearch loop calls after each modification
 to params.py. It must:
+  (Backtest metrics have caveats: normality, vol vs risk, look-ahead, regime.
+   See autoresearch/CAVEATS.md.)
   1. Import the current params.py (with the latest changes)
   2. Run the fast backtest
   3. Print a single line: sharpe_ratio=X.XXXX
@@ -15,6 +17,7 @@ Usage:
     poetry run python -m autoresearch.evaluate --start 2025-08-01 --end 2026-03-07  # OOS window
     poetry run python -m autoresearch.evaluate --tickers XOM,CVX,OXY,SLB,EOG --prices-path prices_energy.json  # cross-asset
     poetry run python -m autoresearch.evaluate --params autoresearch.params_equipment --tickers AMAT,ASML,LRCX,KLAC,TEL --prices-path prices_equipment.json
+    poetry run python -m autoresearch.evaluate --params autoresearch.params_tech --tail-metrics   # print skew/kurtosis
 """
 
 import argparse
@@ -108,6 +111,7 @@ def main():
     parser.add_argument("--prices-path", type=str, help="Override prices cache (e.g. prices_energy.json)")
     parser.add_argument("--params", type=str, help="Params module to load (e.g. autoresearch.params_equipment)")
     parser.add_argument("--cost-bps", type=float, default=0, help="Transaction cost in bps (e.g. 10 = 0.1%%)")
+    parser.add_argument("--tail-metrics", action="store_true", help="Print returns skew and kurtosis when present (fat-tail awareness)")
     args = parser.parse_args()
 
     tickers = [t.strip() for t in args.tickers.split(",")] if args.tickers else None
@@ -130,6 +134,9 @@ def main():
     print(f"val_max_dd={metrics['max_drawdown']}")
     print(f"val_return={metrics['total_return_pct']}")
     print(f"elapsed_ms={elapsed_ms}")
+    if args.tail_metrics and "returns_skew" in metrics and "returns_kurtosis" in metrics:
+        print(f"val_skew={metrics['returns_skew']}")
+        print(f"val_kurtosis={metrics['returns_kurtosis']}")
 
 
 if __name__ == "__main__":
