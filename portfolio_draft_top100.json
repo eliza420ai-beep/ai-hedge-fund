@@ -1,0 +1,424 @@
+{
+  "sleeve": "tastytrade",
+  "params_profile": "tastytrade_factors_on",
+  "assets": [
+    {
+      "symbol": "AMD",
+      "target_weight_pct": 0.97
+    },
+    {
+      "symbol": "ADI",
+      "target_weight_pct": 0.97
+    },
+    {
+      "symbol": "MCHP",
+      "target_weight_pct": 0.97
+    },
+    {
+      "symbol": "CRDO",
+      "target_weight_pct": 0.97
+    },
+    {
+      "symbol": "ARM",
+      "target_weight_pct": 0.97
+    },
+    {
+      "symbol": "GFS",
+      "target_weight_pct": 0.97
+    },
+    {
+      "symbol": "IONQ",
+      "target_weight_pct": 0.97
+    },
+    {
+      "symbol": "CRWV",
+      "target_weight_pct": 0.97
+    },
+    {
+      "symbol": "NBIS",
+      "target_weight_pct": 0.97
+    },
+    {
+      "symbol": "DELL",
+      "target_weight_pct": 0.97
+    },
+    {
+      "symbol": "HPE",
+      "target_weight_pct": 0.97
+    },
+    {
+      "symbol": "SMCI",
+      "target_weight_pct": 0.97
+    },
+    {
+      "symbol": "APP",
+      "target_weight_pct": 0.97
+    },
+    {
+      "symbol": "CSCO",
+      "target_weight_pct": 0.97
+    },
+    {
+      "symbol": "FTNT",
+      "target_weight_pct": 0.97
+    },
+    {
+      "symbol": "ZS",
+      "target_weight_pct": 0.97
+    },
+    {
+      "symbol": "DDOG",
+      "target_weight_pct": 0.97
+    },
+    {
+      "symbol": "CIEN",
+      "target_weight_pct": 0.97
+    },
+    {
+      "symbol": "NTNX",
+      "target_weight_pct": 0.97
+    },
+    {
+      "symbol": "CTSH",
+      "target_weight_pct": 0.97
+    },
+    {
+      "symbol": "GLW",
+      "target_weight_pct": 0.97
+    },
+    {
+      "symbol": "SOUN",
+      "target_weight_pct": 0.97
+    },
+    {
+      "symbol": "ASTS",
+      "target_weight_pct": 0.97
+    },
+    {
+      "symbol": "NOC",
+      "target_weight_pct": 0.97
+    },
+    {
+      "symbol": "GE",
+      "target_weight_pct": 0.97
+    },
+    {
+      "symbol": "AXON",
+      "target_weight_pct": 0.97
+    },
+    {
+      "symbol": "MSI",
+      "target_weight_pct": 0.97
+    },
+    {
+      "symbol": "VRTX",
+      "target_weight_pct": 0.97
+    },
+    {
+      "symbol": "TMO",
+      "target_weight_pct": 0.97
+    },
+    {
+      "symbol": "DHR",
+      "target_weight_pct": 0.97
+    },
+    {
+      "symbol": "ABT",
+      "target_weight_pct": 0.97
+    },
+    {
+      "symbol": "BSX",
+      "target_weight_pct": 0.97
+    },
+    {
+      "symbol": "SYK",
+      "target_weight_pct": 0.97
+    },
+    {
+      "symbol": "AMGN",
+      "target_weight_pct": 0.97
+    },
+    {
+      "symbol": "AZN",
+      "target_weight_pct": 0.97
+    },
+    {
+      "symbol": "ELV",
+      "target_weight_pct": 0.97
+    },
+    {
+      "symbol": "PODD",
+      "target_weight_pct": 0.97
+    },
+    {
+      "symbol": "HALO",
+      "target_weight_pct": 0.97
+    },
+    {
+      "symbol": "EXAS",
+      "target_weight_pct": 0.97
+    },
+    {
+      "symbol": "OKLO",
+      "target_weight_pct": 0.97
+    },
+    {
+      "symbol": "DUK",
+      "target_weight_pct": 0.97
+    },
+    {
+      "symbol": "EXC",
+      "target_weight_pct": 0.97
+    },
+    {
+      "symbol": "PEG",
+      "target_weight_pct": 0.97
+    },
+    {
+      "symbol": "NRG",
+      "target_weight_pct": 0.97
+    },
+    {
+      "symbol": "XEL",
+      "target_weight_pct": 0.97
+    },
+    {
+      "symbol": "WMB",
+      "target_weight_pct": 0.97
+    },
+    {
+      "symbol": "ENPH",
+      "target_weight_pct": 0.97
+    },
+    {
+      "symbol": "FSLR",
+      "target_weight_pct": 0.97
+    },
+    {
+      "symbol": "GNRC",
+      "target_weight_pct": 0.97
+    },
+    {
+      "symbol": "BE",
+      "target_weight_pct": 0.97
+    },
+    {
+      "symbol": "NXT",
+      "target_weight_pct": 0.97
+    },
+    {
+      "symbol": "CORZ",
+      "target_weight_pct": 0.97
+    },
+    {
+      "symbol": "SAP",
+      "target_weight_pct": 0.97
+    },
+    {
+      "symbol": "INTU",
+      "target_weight_pct": 0.97
+    },
+    {
+      "symbol": "ADSK",
+      "target_weight_pct": 0.97
+    },
+    {
+      "symbol": "HUBS",
+      "target_weight_pct": 0.97
+    },
+    {
+      "symbol": "MDB",
+      "target_weight_pct": 0.97
+    },
+    {
+      "symbol": "TEAM",
+      "target_weight_pct": 0.97
+    },
+    {
+      "symbol": "WDAY",
+      "target_weight_pct": 0.97
+    },
+    {
+      "symbol": "VEEV",
+      "target_weight_pct": 0.97
+    },
+    {
+      "symbol": "DOCU",
+      "target_weight_pct": 0.97
+    },
+    {
+      "symbol": "ABB",
+      "target_weight_pct": 0.97
+    },
+    {
+      "symbol": "TT",
+      "target_weight_pct": 0.97
+    },
+    {
+      "symbol": "LIN",
+      "target_weight_pct": 0.97
+    },
+    {
+      "symbol": "CMI",
+      "target_weight_pct": 0.97
+    },
+    {
+      "symbol": "PCAR",
+      "target_weight_pct": 0.97
+    },
+    {
+      "symbol": "FLEX",
+      "target_weight_pct": 0.97
+    },
+    {
+      "symbol": "ROP",
+      "target_weight_pct": 0.97
+    },
+    {
+      "symbol": "CTAS",
+      "target_weight_pct": 0.97
+    },
+    {
+      "symbol": "WMT",
+      "target_weight_pct": 0.97
+    },
+    {
+      "symbol": "COST",
+      "target_weight_pct": 0.97
+    },
+    {
+      "symbol": "BKNG",
+      "target_weight_pct": 0.97
+    },
+    {
+      "symbol": "MELI",
+      "target_weight_pct": 0.97
+    },
+    {
+      "symbol": "NFLX",
+      "target_weight_pct": 0.97
+    },
+    {
+      "symbol": "SHOP",
+      "target_weight_pct": 0.97
+    },
+    {
+      "symbol": "UBER",
+      "target_weight_pct": 0.97
+    },
+    {
+      "symbol": "DASH",
+      "target_weight_pct": 0.97
+    },
+    {
+      "symbol": "CVNA",
+      "target_weight_pct": 0.97
+    },
+    {
+      "symbol": "CPRT",
+      "target_weight_pct": 0.97
+    },
+    {
+      "symbol": "PM",
+      "target_weight_pct": 0.97
+    },
+    {
+      "symbol": "RBLX",
+      "target_weight_pct": 0.97
+    },
+    {
+      "symbol": "TTWO",
+      "target_weight_pct": 0.97
+    },
+    {
+      "symbol": "KKR",
+      "target_weight_pct": 0.97
+    },
+    {
+      "symbol": "VRSN",
+      "target_weight_pct": 0.97
+    },
+    {
+      "symbol": "SNDK",
+      "target_weight_pct": 0.97
+    },
+    {
+      "symbol": "GEV",
+      "target_weight_pct": 0.97
+    },
+    {
+      "symbol": "EME",
+      "target_weight_pct": 0.97
+    },
+    {
+      "symbol": "NVO",
+      "target_weight_pct": 0.97
+    },
+    {
+      "symbol": "CRWD",
+      "target_weight_pct": 0.97
+    },
+    {
+      "symbol": "ISRG",
+      "target_weight_pct": 0.97
+    },
+    {
+      "symbol": "REGN",
+      "target_weight_pct": 0.97
+    },
+    {
+      "symbol": "CCJ",
+      "target_weight_pct": 0.97
+    },
+    {
+      "symbol": "CRCL",
+      "target_weight_pct": 0.97
+    },
+    {
+      "symbol": "LLY",
+      "target_weight_pct": 0.97
+    },
+    {
+      "symbol": "CLS",
+      "target_weight_pct": 0.97
+    },
+    {
+      "symbol": "ETN",
+      "target_weight_pct": 0.97
+    },
+    {
+      "symbol": "PWR",
+      "target_weight_pct": 0.97
+    },
+    {
+      "symbol": "BWXT",
+      "target_weight_pct": 0.97
+    },
+    {
+      "symbol": "PANW",
+      "target_weight_pct": 0.97
+    },
+    {
+      "symbol": "NOW",
+      "target_weight_pct": 0.97
+    },
+    {
+      "symbol": "NEE",
+      "target_weight_pct": 0.97
+    },
+    {
+      "symbol": "NET",
+      "target_weight_pct": 0.97
+    },
+    {
+      "symbol": "VST",
+      "target_weight_pct": 0.97
+    }
+  ],
+  "graph_nodes": [],
+  "graph_edges": [],
+  "margin_requirement": 0.5,
+  "portfolio_positions": [],
+  "model_name": "gpt-4.1",
+  "model_provider": "openai"
+}

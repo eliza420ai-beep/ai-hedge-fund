@@ -205,16 +205,44 @@ This file tracks the concrete work to turn the new data layer, factor overlays, 
 
 ---
 
-## 5. Optional polish and follow-ups
+## 5. Experiment: Second opinion on TOP100.md (The Bench)
 
-- **4.1 Docs and runbooks**
+**Goal:** Use the existing second-opinion pipeline to run the 18-agent committee on **The Bench** (TOP100.md) — the 100-stock annex sorted by upside to analyst PT — and get agree/disagree buckets plus optional Substack narrative. The Bench is the list to be stress-tested; the committee gives an independent view.
+
+- **5.1 What we added**
+  - **`scripts/top100_to_second_opinion_draft.py`** — Parses TOP100.md (all sector tables + Highest Conviction + Ticker Scorecard), dedupes tickers, and writes a PortfolioDraft JSON with equal weight per ticker. Options: `--max-tickers` (cap for quicker runs), `--sleeve`, `--params-profile`.
+  - **`docs/TOP100_SECOND_OPINION.md`** — Step-by-step: start backend → build draft from TOP100 → submit run with `dexter_second_opinion_client.py` (with `--flow-id 1`) → optional `second_opinion_to_substack_outline.py`.
+  - **TOP100.md** — Short “Second opinion” note at the end linking to the doc.
+
+- **5.2 How to run the experiment**
+  1. Start backend: `poetry run uvicorn app.backend.main:app --reload` (requires a saved flow, e.g. flow_id=1).
+  2. Build draft: `poetry run python scripts/top100_to_second_opinion_draft.py --top100 TOP100.md --out second_opinion_runs/top100_bench_draft.json` (use `--max-tickers 30` for a faster smoke test).
+  3. Run second opinion: `poetry run python scripts/dexter_second_opinion_client.py --draft second_opinion_runs/top100_bench_draft.json --flow-id 1 --output-dir second_opinion_runs --run-report`.
+  4. Optional: `poetry run python scripts/second_opinion_to_substack_outline.py --run-result second_opinion_runs/second_opinion_run_result_<id>.json` (or `--final-draft` / publish-pack).
+
+- **5.3 Success criteria**
+  - Draft builds from TOP100.md with no manual ticker list.
+  - Run completes (COMPLETE) with populated `decisions` and `analyst_signals`.
+  - Report prints Strong agree / Mild disagree / Hard disagree buckets for the Bench names.
+  - Optional: Substack outline/draft is usable for narrative comparison (thesis vs committee).
+
+- **5.4 Follow-ups**
+  - If runs are slow with full ~100+ tickers, keep using `--max-tickers` for iteration; document a “full Bench” run as a periodic (e.g. weekly) job.
+  - Consider persisting a summary (e.g. `SecondOpinionSummary[]`) per run for time-series comparison (how committee view on Bench evolves).
+
+---
+
+## 6. Optional polish and follow-ups
+
+- **6.1 Docs and runbooks**
   - Keep `README.md` aligned with:
     - The existence of `validate_cache.py`, `factors.py`, `tiers.py`.
     - The `/api/v1/second-opinion/runs` endpoints.
     - The helper client and disagreement report.
+    - The TOP100 second-opinion experiment (script + `docs/TOP100_SECOND_OPINION.md`).
   - Append any recurring issues (timeouts, missing keys, cache mismatches) to `ISSUE.md` with fixes/runbooks.
 
-- **4.2 Observability**
+- **6.2 Observability**
   - Add lightweight logging/metrics around second-opinion runs, in the spirit of `docs/PRD-DEXTER-AI-HEDGE-FUND-INTEGRATION.md`:
     - Count of runs by status.
     - Latency from submit → complete.

@@ -251,7 +251,7 @@ def main() -> int:
         "--timeout",
         type=float,
         default=900.0,
-        help="Max seconds to wait for a run (default 900s = 15min).",
+        help="Max seconds to wait for a run (default 900s = 15min). Use 3600+ for large drafts (20+ tickers).",
     )
     parser.add_argument(
         "--hide-progress",
@@ -298,6 +298,14 @@ def main() -> int:
 
     # Hard fail if graph is invalid.
     validate_graph_or_raise(graph_nodes, graph_edges)
+
+    asset_count = len(draft.get("assets") or [])
+    if asset_count > 20:
+        print(
+            f"  WARNING: draft has {asset_count} tickers. Runs scale with ticker count (LLM calls per analyst) "
+            "and can take 30+ min and cost significant API credits. For testing use a smaller draft (e.g. "
+            "--max-tickers 10 when building from TOP100). Use --timeout 3600 or more for large runs."
+        )
 
     print(f"Submitting second-opinion run to {args.base_url} for {draft_path}...")
     run_id = submit_run(args.base_url, draft, params_profile=args.params_profile)
