@@ -28,6 +28,7 @@ from autoresearch.portfolio_backtest import (
 )
 from autoresearch.tiers import get_ticker_meta, TIER_BASE_MULTIPLIER, REGIME_TIER_MULTIPLIER
 from autoresearch.regime import get_regime_for_paper_trading, regime_scale
+from autoresearch.regime_swarm import swarm_regime
 from autoresearch.risk_controls import should_halt_for_drawdown, scale_for_drawdown, apply_stop_loss
 from autoresearch.cache_worldmonitor import format_worldmonitor_status_line
 
@@ -148,12 +149,19 @@ def main():
 
     regime_scale_factor = 1.0
     regime = "bull"
+    regime_confidence: float | None = None
     if not args.no_regime:
-        regime = get_regime_for_paper_trading(
-            use_drawdown=args.regime_drawdown,
-            use_renko=args.renko_regime,
-            renko_ticker=args.renko_ticker,
-        )
+        swarm_result = swarm_regime(tickers=None)
+        if swarm_result.get("confidence", 0) > 0:
+            regime = swarm_result["regime"]
+            regime_confidence = swarm_result.get("confidence")
+        else:
+            regime = get_regime_for_paper_trading(
+                benchmark_tickers=["SPY", "AAPL", "NVDA"],
+                use_drawdown=args.regime_drawdown,
+                use_renko=args.renko_regime,
+                renko_ticker=args.renko_ticker,
+            )
         regime_scale_factor = regime_scale(regime)
         if args.renko_regime:
             from autoresearch.regime import renko_scale_factor as get_renko_scale
@@ -168,7 +176,8 @@ def main():
             regime_scale_factor = scale_for_drawdown(
                 regime_scale_factor, args.state_path, args.max_drawdown_pct,
             )
-        print(f"  Regime: {regime} (scale={regime_scale_factor:.2f})")
+        conf_str = f" confidence={regime_confidence:.2f}" if regime_confidence is not None else ""
+        print(f"  Regime: {regime} (scale={regime_scale_factor:.2f}{conf_str})")
 
     sector_positions = {}
     sector_engines = {}

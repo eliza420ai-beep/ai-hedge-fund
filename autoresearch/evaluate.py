@@ -112,9 +112,32 @@ def main():
     parser.add_argument("--params", type=str, help="Params module to load (e.g. autoresearch.params_equipment)")
     parser.add_argument("--cost-bps", type=float, default=0, help="Transaction cost in bps (e.g. 10 = 0.1%%)")
     parser.add_argument("--tail-metrics", action="store_true", help="Print returns skew and kurtosis when present (fat-tail awareness)")
+    parser.add_argument("--composite", action="store_true", help="Run scenario suite and print val_composite (weighted Sharpe across 5 scenarios)")
     args = parser.parse_args()
 
     tickers = [t.strip() for t in args.tickers.split(",")] if args.tickers else None
+
+    if args.composite:
+        t0 = time.time()
+        try:
+            from autoresearch.scenario_eval import run_scenario_suite, composite_sharpe
+            scenario_results = run_scenario_suite(
+                params_module=args.params or "autoresearch.params",
+                start=args.start,
+                end=args.end,
+                prices_path=args.prices_path,
+            )
+            composite = composite_sharpe(scenario_results)
+            elapsed_ms = int((time.time() - t0) * 1000)
+        except Exception:
+            traceback.print_exc()
+            print("val_sharpe=FAIL")
+            print("val_composite=FAIL")
+            sys.exit(1)
+        print(f"val_sharpe_base={scenario_results.get('base', 0.0)}")
+        print(f"val_composite={composite}")
+        print(f"elapsed_ms={elapsed_ms}")
+        return
 
     t0 = time.time()
     try:

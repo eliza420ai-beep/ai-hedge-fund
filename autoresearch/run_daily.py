@@ -55,6 +55,23 @@ def main():
         log.write(f"=== Daily paper trading {date} ===\n")
         log.flush()
 
+        try:
+            from autoresearch.cache_summaries import rebuild_summaries
+            rebuild_summaries()
+        except Exception as e:
+            log.write(f"L1 summaries rebuild skipped: {e}\n")
+
+        try:
+            from autoresearch.cache_manifest import check_staleness
+            stale_list = check_staleness(max_age_days=7)
+            if stale_list:
+                for name, meta in stale_list[:10]:
+                    log.write(f"Stale cache: {name} (modified {meta.get('modified', '?')})\n")
+                if len(stale_list) > 10:
+                    log.write(f"... and {len(stale_list) - 10} more stale files\n")
+        except Exception as e:
+            log.write(f"Staleness check skipped: {e}\n")
+
         if refresh == "1":
             run(["./autoresearch/refresh_all_prices.sh"]) or log.write("Price refresh failed (check API key)\n")
         if refresh_worldmonitor == "1":

@@ -11,6 +11,16 @@ This document explains how we pull and cache historical data so we can backtest 
 
 > **Key idea:** expensive calls (LLMs, external APIs) happen once during caching; backtests and autoresearch then run purely on local JSON files.
 
+#### Guiding principle (Charlie Munger)
+
+> “Over the long term, it’s hard for a stock to earn a much better return than the business that underlies it earns.”
+>
+> “If the business earns 6 percent on capital over 40 years and you hold it for that 40 years, you’re not going to make much different than a 6 percent return, even if you originally buy it at a huge discount.”
+>
+> “Conversely, if a business earns 18 percent on capital over 20 or 30 years, even if you pay an expensive looking price, you’ll end up with one hell of a result. So the trick is getting into better businesses.”
+
+Our data and backtests exist to help identify and hold *better businesses* (sustainable high return on capital); valuation alone is secondary.
+
 ---
 
 ### 2. Core Script: `autoresearch/cache_signals.py`

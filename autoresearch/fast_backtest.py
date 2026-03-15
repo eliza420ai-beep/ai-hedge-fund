@@ -58,6 +58,52 @@ def load_signals_cache() -> Optional[dict]:
         return json.load(f)
 
 
+def _apply_price_perturbation(prices: dict[str, pd.DataFrame], config: dict) -> None:
+    """
+    Apply a price shock to cached prices in place. Used for scenario backtesting.
+    config["price_shock"]: { pct, start, end, optional tickers, optional gradual }.
+    pct: e.g. -0.08 => multiply by 0.92. gradual: linearly ramp multiplier from 1.0 to (1+pct).
+    """
+    shock = config.get("price_shock")
+    if not shock:
+        return
+    pct = float(shock.get("pct", 0))
+    start_s = shock.get("start")
+    end_s = shock.get("end")
+    if not start_s or not end_s:
+        return
+    start_dt = pd.Timestamp(start_s)
+    end_dt = pd.Timestamp(end_s)
+    tickers = shock.get("tickers")
+    gradual = bool(shock.get("gradual", False))
+    mult_final = 1.0 + pct
+
+    for ticker, df in list(prices.items()):
+        if tickers is not None and ticker not in tickers:
+            continue
+        if df is None or df.empty:
+            continue
+        mask = (df.index >= start_dt) & (df.index <= end_dt)
+        if not mask.any():
+            continue
+        if gradual:
+            span = end_dt - start_dt
+            t = (df.index - start_dt) / span if span.total_seconds() else pd.Series(0.0, index=df.index)
+            t = pd.Series(np.clip(np.asarray(t, dtype=float), 0.0, 1.0), index=df.index)
+            mult = 1.0 + pct * t
+            df.loc[mask, "close"] = df.loc[mask, "close"] * mult.loc[mask]
+            if "high" in df.columns:
+                df.loc[mask, "high"] = df.loc[mask, "high"] * mult.loc[mask]
+            if "low" in df.columns:
+                df.loc[mask, "low"] = df.loc[mask, "low"] * mult.loc[mask]
+        else:
+            df.loc[mask, "close"] = df.loc[mask, "close"] * mult_final
+            if "high" in df.columns:
+                df.loc[mask, "high"] = df.loc[mask, "high"] * mult_final
+            if "low" in df.columns:
+                df.loc[mask, "low"] = df.loc[mask, "low"] * mult_final
+
+
 # ── Technical indicator computations (parameterized) ────────
 
 def compute_ema(series: pd.Series, window: int) -> pd.Series:
@@ -313,13 +359,15 @@ def deterministic_portfolio_decision(
 # ── Main fast backtest engine ────────────────────────────────
 
 class FastBacktestEngine:
-    def __init__(self, params_module, tickers_override=None, prices_path_override=None):
+    def __init__(self, params_module, tickers_override=None, prices_path_override=None, price_perturbation=None):
         self.p = params_module
         prices_path = None
         if prices_path_override:
             p = Path(prices_path_override)
             prices_path = p if p.is_absolute() else CACHE_DIR / p
         self.prices = load_prices_cache(prices_path)
+        if price_perturbation:
+            _apply_price_perturbation(self.prices, price_perturbation)
         self.signals_cache = load_signals_cache() if not tickers_override else None  # cross-asset = technical-only
         self.tickers = tickers_override if tickers_override else self.p.BACKTEST_TICKERS
         self.portfolio_values = []

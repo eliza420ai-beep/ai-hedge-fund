@@ -212,6 +212,11 @@ def main():
         meta = {"tickers": tickers, "start_date": args.start, "end_date": args.end, "model": args.model, "provider": args.provider, "has_signals": False}
         with open(CACHE_DIR / "meta.json", "w") as f:
             json.dump(meta, f, indent=2)
+        try:
+            from autoresearch.cache_manifest import rebuild_manifest
+            rebuild_manifest()
+        except Exception as e:
+            print(f"  (manifest rebuild skipped: {e})")
         print("Done.")
         return
 
@@ -238,6 +243,11 @@ def main():
         json.dump(meta, f, indent=2)
 
     print(f"\nCache complete: {len(signals_cache)} dates cached.")
+    try:
+        from autoresearch.cache_manifest import rebuild_manifest
+        rebuild_manifest()
+    except Exception as e:
+        print(f"  (manifest rebuild skipped: {e})")
     print("You can now run: poetry run python -m autoresearch.evaluate")
 
 

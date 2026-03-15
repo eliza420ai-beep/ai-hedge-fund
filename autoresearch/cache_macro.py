@@ -101,6 +101,11 @@ def main():
     with open(out_path, "w") as f:
         json.dump(data, f, indent=2)
 
+    try:
+        from autoresearch.cache_manifest import rebuild_manifest
+        rebuild_manifest()
+    except Exception as e:
+        print(f"  (manifest rebuild skipped: {e})")
     print(f"\nMacro rates saved → {out_path}")
 
 

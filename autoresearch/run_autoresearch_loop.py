@@ -16,13 +16,47 @@ import re
 import subprocess
 import sys
 import time
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from statistics import median
 from pathlib import Path
+from typing import Any
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
+from autoresearch.param_memory import ExperimentRecord, ParamMemory
+from autoresearch.regime import get_regime_from_cache
+from autoresearch.regime_swarm import swarm_regime
 sys.path.insert(0, str(PROJECT_ROOT))
 LOGS_DIR = PROJECT_ROOT / "autoresearch" / "logs"
+
+
+@dataclass
+class TrailEntry:
+    """Full decision context for one experiment (OpenViking-style observable trail)."""
+    ts: str
+    event: str  # "experiment"
+    decision: str  # "accepted" | "rejected"
+    param: str
+    old_value: float
+    new_value: float
+    regime: dict[str, Any]  # consensus, confidence, votes
+    memory_context: dict[str, Any]  # previously_tested, best_known_value_in_regime
+    eval_result: dict[str, Any]  # in_sample_sharpe, oos_sharpe, max_dd, composite
+    elapsed_ms: int
+
+    def to_event(self) -> dict:
+        return {
+            "ts": self.ts,
+            "event": self.event,
+            "decision": self.decision,
+            "param": self.param,
+            "old_value": self.old_value,
+            "new_value": self.new_value,
+            "regime": self.regime,
+            "memory_context": self.memory_context,
+            "eval_result": self.eval_result,
+            "elapsed_ms": self.elapsed_ms,
+        }
 
 # Default technical indicators to tweak for sector params (e.g. equipment, tech).
 TWEAKABLE = [
@@ -162,17 +196,34 @@ def parse_val_max_dd(stdout: str) -> float | None:
     return None
 
 
-def run_eval(sector: str, oos: bool = False) -> tuple[float | None, float | None, subprocess.CompletedProcess, int]:
-    """Return (sharpe, max_dd, proc, elapsed_ms). max_dd is None if parse fails."""
+def parse_val_composite(stdout: str) -> float | None:
+    """Parse val_composite=<float> when --composite is used."""
+    pattern = re.compile(r"^val_composite=([-+]?\d+(?:\.\d+)?(?:[eE][-+]?\d+)?)$")
+    for line in stdout.splitlines():
+        m = pattern.match(line.strip())
+        if m:
+            try:
+                return float(m.group(1))
+            except ValueError:
+                return None
+    return None
+
+
+def run_eval(sector: str, oos: bool = False, composite: bool = False) -> tuple[float | None, float | None, subprocess.CompletedProcess, int]:
+    """Return (sharpe_or_composite, max_dd, proc, elapsed_ms). max_dd is None if parse fails or when composite."""
     t0 = time.time()
     cmd = ["poetry", "run", "python", "-m", "autoresearch.evaluate", "--params", f"autoresearch.params_{sector}"]
     if oos:
         cmd.extend(["--start", "2025-08-01", "--end", "2026-03-07"])
+    if composite:
+        cmd.append("--composite")
     result = run_cmd(cmd, cwd=PROJECT_ROOT, sector=sector, stage="eval", check=False)
     elapsed_ms = int((time.time() - t0) * 1000)
     if result.returncode != 0:
         return None, None, result, elapsed_ms
-    return parse_val_sharpe(result.stdout), parse_val_max_dd(result.stdout), result, elapsed_ms
+    score = parse_val_composite(result.stdout) if composite else parse_val_sharpe(result.stdout)
+    max_dd = None if composite else parse_val_max_dd(result.stdout)
+    return score, max_dd, result, elapsed_ms
 
 
 def main():
@@ -206,6 +257,16 @@ def main():
         default=1.0,
         help="Reject if candidate max_dd < best - tolerance (percentage points; default 1.0)",
     )
+    parser.add_argument(
+        "--no-memory",
+        action="store_true",
+        help="Disable param memory (do not skip dead ends or record experiments)",
+    )
+    parser.add_argument(
+        "--composite",
+        action="store_true",
+        help="Use scenario suite; optimize val_composite (weighted Sharpe across 5 scenarios) instead of single-path val_sharpe",
+    )
     args = parser.parse_args()
 
     sector = args.sector
@@ -219,9 +280,31 @@ def main():
         print("--confirm-runs must be >= 1")
         return 1
 
+    swarm_result = swarm_regime(tickers=None)
+    if swarm_result.get("confidence", 0) > 0:
+        current_regime = swarm_result["regime"]
+    else:
+        current_regime = get_regime_from_cache()
+    memory = None if args.no_memory else ParamMemory(LOGS_DIR / f"param_memory_{sector}.jsonl")
+    if memory:
+        print(f"Regime: {current_regime} | Param memory: {memory.path}")
+    briefing_path = LOGS_DIR / f"session_briefing_{sector}.json"
+    if memory and briefing_path.exists():
+        try:
+            with open(briefing_path) as f:
+                briefing = json.load(f)
+            total_exp = briefing.get("total_experiments", 0)
+            rate = briefing.get("overall_acceptance_rate", 0)
+            notes = briefing.get("strategic_notes", [])[:2]
+            print(f"Session briefing: {total_exp} experiments, acceptance rate {rate:.1%}")
+            for n in notes:
+                print(f"  — {n}")
+        except Exception:
+            pass
+
     tweakables = SLEEVE_TWEAKABLE.get(sector, TWEAKABLE)
 
-    baseline, baseline_max_dd, baseline_proc, baseline_elapsed = run_eval(sector, oos=args.oos)
+    baseline, baseline_max_dd, baseline_proc, baseline_elapsed = run_eval(sector, oos=args.oos, composite=args.composite)
     if baseline is None:
         print("Baseline eval failed.")
         append_loop_event(
@@ -256,7 +339,7 @@ def main():
     best_max_dd = baseline_max_dd  # more negative = worse
     best_oos = None
     if args.require_oos_improvement and not args.oos:
-        base_oos, _, _, _ = run_eval(sector, oos=True)
+        base_oos, _, _, _ = run_eval(sector, oos=True, composite=args.composite)
         if base_oos is None:
             print("OOS baseline eval failed; cannot enforce --require-oos-improvement")
             return 1
@@ -270,9 +353,18 @@ def main():
         val = get_param_value(mod, name)
         if val is None:
             continue
-        delta = random.choice([-step, step])
-        new_val = max(lo, min(hi, val + delta))
+        best_known = memory.best_value_in_regime(name, current_regime) if memory else None
+        if memory and random.random() < 0.30 and best_known is not None:
+            new_val = max(lo, min(hi, best_known))
+            if abs(new_val - val) < 1e-9:
+                delta = random.choice([-step, step])
+                new_val = max(lo, min(hi, val + delta))
+        else:
+            delta = random.choice([-step, step])
+            new_val = max(lo, min(hi, val + delta))
         if new_val == val:
+            continue
+        if memory and memory.skip_if_tested(name, new_val, current_regime):
             continue
         if not set_param_in_file(params_path, name, format_value_like(val, new_val)):
             continue
@@ -281,7 +373,7 @@ def main():
         last_proc = None
         elapsed_total_ms = 0
         for _ in range(args.confirm_runs):
-            sharpe, _, proc, elapsed_ms = run_eval(sector, oos=args.oos)
+            sharpe, _, proc, elapsed_ms = run_eval(sector, oos=args.oos, composite=args.composite)
             last_proc = proc
             elapsed_total_ms += elapsed_ms
             if sharpe is None:
@@ -314,7 +406,7 @@ def main():
 
         candidate_oos = None
         if accepted and args.require_oos_improvement and not args.oos:
-            candidate_oos, _, proc_oos, oos_elapsed_ms = run_eval(sector, oos=True)
+            candidate_oos, _, proc_oos, oos_elapsed_ms = run_eval(sector, oos=True, composite=args.composite)
             elapsed_total_ms += oos_elapsed_ms
             if candidate_oos is None:
                 accepted = False
@@ -394,6 +486,21 @@ def main():
                 )
                 return 2
             print(f"  Commit: {name}={format_value_like(val, new_val)} sharpe={sharpe_med:.4f}")
+            if memory:
+                memory.record(
+                    ExperimentRecord(
+                        param=name,
+                        old_value=val,
+                        new_value=new_val,
+                        regime=current_regime,
+                        sector=sector,
+                        in_sample_sharpe=sharpe_med,
+                        oos_sharpe=candidate_oos,
+                        max_dd=parse_val_max_dd(last_proc.stdout) if last_proc else None,
+                        accepted=True,
+                        ts=_iso_now(),
+                    )
+                )
             append_loop_event(
                 sector,
                 {
@@ -410,11 +517,39 @@ def main():
                     "elapsed_total_ms": elapsed_total_ms,
                 },
             )
+            trail = TrailEntry(
+                ts=_iso_now(),
+                event="experiment",
+                decision="accepted",
+                param=name,
+                old_value=val,
+                new_value=new_val,
+                regime={"consensus": current_regime, "confidence": swarm_result.get("confidence"), "votes": swarm_result.get("votes", {})},
+                memory_context={"previously_tested": False, "best_known_value_in_regime": best_known},
+                eval_result={"in_sample_sharpe": sharpe_med, "oos_sharpe": candidate_oos, "max_dd": parse_val_max_dd(last_proc.stdout) if last_proc else None, "composite": sharpe_med if args.composite else None},
+                elapsed_ms=elapsed_total_ms,
+            )
+            append_loop_event(sector, trail.to_event())
         else:
             restore_ok = restore_param_file(params_path, sector)
             if not restore_ok:
                 print("CRITICAL: failed to restore params after rejected candidate. Aborting.")
                 return 2
+            if memory:
+                memory.record(
+                    ExperimentRecord(
+                        param=name,
+                        old_value=val,
+                        new_value=new_val,
+                        regime=current_regime,
+                        sector=sector,
+                        in_sample_sharpe=sharpe_med,
+                        oos_sharpe=candidate_oos,
+                        max_dd=parse_val_max_dd(last_proc.stdout) if last_proc else None,
+                        accepted=False,
+                        ts=_iso_now(),
+                    )
+                )
             append_loop_event(
                 sector,
                 {
@@ -431,6 +566,27 @@ def main():
                     "elapsed_total_ms": elapsed_total_ms,
                 },
             )
+            trail = TrailEntry(
+                ts=_iso_now(),
+                event="experiment",
+                decision="rejected",
+                param=name,
+                old_value=val,
+                new_value=new_val,
+                regime={"consensus": current_regime, "confidence": swarm_result.get("confidence"), "votes": swarm_result.get("votes", {})},
+                memory_context={"previously_tested": False, "best_known_value_in_regime": best_known},
+                eval_result={"in_sample_sharpe": sharpe_med, "oos_sharpe": candidate_oos, "max_dd": parse_val_max_dd(last_proc.stdout) if last_proc else None, "composite": sharpe_med if args.composite else None},
+                elapsed_ms=elapsed_total_ms,
+            )
+            append_loop_event(sector, trail.to_event())
+    if memory:
+        try:
+            briefing = memory.synthesize_briefing()
+            LOGS_DIR.mkdir(parents=True, exist_ok=True)
+            with open(briefing_path, "w") as f:
+                json.dump(briefing, f, indent=2)
+        except Exception as e:
+            print(f"  (session briefing write skipped: {e})")
     print(f"Best Sharpe: {best:.4f}")
     if best_max_dd is not None:
         print(f"Best max DD: {best_max_dd:.2f}%")

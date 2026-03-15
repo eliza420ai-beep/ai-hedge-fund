@@ -161,6 +161,7 @@ The fast backtester can apply two optional overlays that use cached data without
 - [How This Fits With Dexter](#how-this-fits-with-dexter)
 - [Portfolio Builder](#portfolio-builder)
 - [Autoresearch — Autonomous Parameter Optimization](#autoresearch--autonomous-parameter-optimization)
+  - [Autoresearch Intelligence Layer](#autoresearch-intelligence-layer-mirofish--openviking)
 - [Hyperliquid Integration](#hyperliquid-integration)
 - [Tastytrade Daily Options](#tastytrade-daily-options-experimental)
 - [Project Structure](#project-structure)
@@ -1018,7 +1019,121 @@ Each change was measured in isolation. If the Sharpe dropped, the change was rev
 
 See [`autoresearch/README.md`](autoresearch/README.md) for the full documentation. For operations and reproducibility, see [`autoresearch/RUNBOOK.md`](autoresearch/RUNBOOK.md).
 
-### Portfolio backtest & paper trading
+### Autoresearch Intelligence Layer (MiroFish + OpenViking)
+
+The autoresearch loop started as a simple random-walk parameter optimizer: pick a knob, wiggle it, keep or revert based on Sharpe. This is effective but has three structural weaknesses:
+
+1. **No memory** -- the loop re-tests dead-end parameter combinations across sessions because it has no record of what was already tried.
+2. **Single-path fragility** -- a parameter set tuned to one 14-month bull market path can break on a rate shock, crash, or sector rotation.
+3. **Primitive regime detection** -- a single 20-day SPY return drives all regime-aware sizing, which is noisy and misses stealth bear rotations visible in volatility, macro rates, insider flows, and news sentiment.
+
+We addressed these by studying two open-source projects and extracting the patterns that map directly to our system:
+
+- [MiroFish](https://github.com/666ghj/MiroFish) -- a swarm intelligence engine that builds parallel digital worlds for prediction. We took three ideas: **experiment memory** (remember what you tested so you never re-test dead ends), **parallel-world scenario evaluation** (stress-test every parameter set against 5 perturbed market paths simultaneously), and **multi-signal regime swarm** (replace a single price signal with a weighted committee of 5 cache-derived agents voting on the market regime).
+
+- [OpenViking](https://github.com/volcengine/OpenViking) -- a context database for AI agents that organizes memory, resources, and skills into a filesystem-like hierarchy. We took four ideas: **cache manifest** (a single index of every cache file so subsystems resolve paths deterministically instead of glob/fallback chains), **L1 summaries** (pre-computed 2KB companion files so the regime swarm reads aggregated stats instead of loading 20MB of raw insider trades), **session briefings** (auto-synthesized strategic guidance from experiment history so the loop learns what worked and where dead zones are), and **decision trails** (enriched log events that capture the full context of each experiment -- regime votes, memory state, eval metrics -- so debugging requires reading one line, not three files).
+
+#### What shipped
+
+| Module | What it does | Why it matters |
+|--------|-------------|----------------|
+| `param_memory.py` | Records every experiment (param, value, regime, sharpe, accepted). Skips already-tested combos. | Eliminates redundant experiments. A 200-experiment history means the loop spends time exploring new territory instead of re-testing dead ends. |
+| `scenario_eval.py` | Runs 5 parallel backtests (base, rate shock, Q4 crash, bear grind, sector rotation) and produces a weighted composite Sharpe. | Parameters that score well on the composite are robust by construction. A strategy that only works in a bull market gets penalized. |
+| `regime_swarm.py` | 5 agents (price momentum, realized vol, macro rates, insider flow, news sentiment) vote on the market regime via ThreadPoolExecutor. | Catches stealth bears that single-ticker price lookback misses. Insider distribution and rate tightening show up before price does. |
+| `cache_manifest.py` | Indexes every file in `cache/` with type, tickers, date range, size, staleness. | No more glob fallback chains. `resolve("prices", "benchmark")` returns the right file deterministically. Staleness warnings appear in daily logs. |
+| `cache_summaries.py` | Builds `*_l1.json` companions (2KB) from heavy cache files (20MB). | The regime swarm reads 10KB total instead of parsing 25MB of JSON on every call. Saves 2-3 seconds and avoids loading 20MB into memory. |
+| `param_memory.py` (briefings) | `synthesize_briefing()` computes per-param per-regime acceptance rates, dead zones, best known values, and strategic notes. | The loop loads the briefing at startup, uses `suggest_start_value()` 30% of the time (exploitation) vs random walk 70% (exploration), and writes a fresh briefing at the end. Each session gets smarter. |
+| `run_autoresearch_loop.py` (trails) | `TrailEntry` dataclass captures regime consensus + votes, memory context, and eval metrics in each `.jsonl` event. | Debugging a rejected experiment requires reading one log line instead of correlating 3 files. |
+
+#### How to test if this actually improves what we had
+
+Run these commands from the repo root. Each one exercises a specific improvement and produces output you can compare to the old behavior.
+
+**1. Verify the cache manifest and L1 summaries build correctly:**
+
+```bash
+poetry run python -c "
+from autoresearch.cache_manifest import get_manifest
+from autoresearch.cache_summaries import rebuild_summaries
+m = get_manifest()
+print(f'Manifest: {len(m[\"files\"])} files indexed')
+stale = [k for k,v in m['files'].items() if v.get('stale')]
+print(f'Stale files: {len(stale)}' + (f' ({stale[:3]}...)' if stale else ''))
+paths = rebuild_summaries()
+print(f'L1 summaries built: {len(paths)} files')
+"
+```
+
+**2. Compare regime swarm (new) vs single-signal regime (old):**
+
+```bash
+poetry run python -c "
+from autoresearch.regime import get_regime_from_cache
+from autoresearch.regime_swarm import swarm_regime
+old = get_regime_from_cache()
+new = swarm_regime()
+print(f'Old single-signal regime: {old}')
+print(f'New swarm regime: {new[\"regime\"]} (confidence={new[\"confidence\"]:.2f})')
+for agent, vote in new['votes'].items():
+    status = f'{vote[\"regime\"]} conf={vote[\"confidence\"]:.2f}' if vote else 'abstained'
+    print(f'  {agent}: {status}')
+"
+```
+
+**3. Run the autoresearch loop with memory enabled (default) vs disabled, and compare:**
+
+```bash
+# With memory (default) -- skips dead ends, uses session briefings
+poetry run python -m autoresearch.run_autoresearch_loop \
+  --sector tech --iterations 10 --dry-run
+
+# Without memory -- old behavior, re-tests everything
+poetry run python -m autoresearch.run_autoresearch_loop \
+  --sector tech --iterations 10 --dry-run --no-memory
+```
+
+Compare the output: with memory enabled, the loop skips already-tested parameter values and prints the session briefing summary at startup (if a previous session exists).
+
+**4. Run a composite (scenario-suite) evaluation vs single-path:**
+
+```bash
+# Single-path Sharpe (old behavior)
+poetry run python -m autoresearch.evaluate --params autoresearch.params_tech
+
+# Composite Sharpe across 5 stress scenarios (new)
+poetry run python -m autoresearch.evaluate --params autoresearch.params_tech --composite
+```
+
+The composite score is typically lower than single-path because it penalizes strategies that only work in the base case. A strategy where composite is close to single-path is genuinely robust.
+
+**5. Inspect the enriched decision trail after a loop run:**
+
+```bash
+# Run a short loop (not dry-run) to generate trail events
+poetry run python -m autoresearch.run_autoresearch_loop \
+  --sector tech --iterations 3
+
+# Read the last 3 events from the loop log
+tail -3 autoresearch/logs/autoresearch_loop_tech.jsonl | python -m json.tool
+```
+
+Look for the `"event": "experiment"` entries -- they now contain `regime` (with votes), `memory_context`, and `eval_result` in a single line.
+
+**6. Check staleness warnings (simulates what run_daily sees):**
+
+```bash
+poetry run python -c "
+from autoresearch.cache_manifest import check_staleness
+stale = check_staleness(max_age_days=7)
+if stale:
+    for name, meta in stale[:5]:
+        print(f'STALE: {name} (modified {meta.get(\"modified\", \"?\")}, {meta.get(\"size_bytes\", 0)//1024}KB)')
+else:
+    print('All cache files are fresh (< 7 days old)')
+"
+```
+
+
 
 The autoresearch system supports multi-sector portfolio backtests and paper trading. **Live execution uses [Tastytrade](https://tastytrade.com) only** — aligned with [Dexter](https://github.com/eliza420ai-beep/dexter). No Alpaca or Interactive Brokers.
 
@@ -1263,6 +1378,11 @@ ai-hedge-fund/
 │   ├── evaluate.py          # Runs one experiment, outputs Sharpe ratio
 │   ├── fast_backtest.py     # Deterministic backtester (no LLM calls)
 │   ├── cache_signals.py     # One-time data caching script
+│   ├── cache_manifest.py    # Unified cache file index with staleness checks
+│   ├── cache_summaries.py   # L1 summary builder for heavy cache files
+│   ├── param_memory.py      # Experiment memory and session briefing synthesis
+│   ├── regime_swarm.py      # Multi-signal regime detection (5-agent committee)
+│   ├── scenario_eval.py     # Parallel-world stress-test backtest suite
 │   ├── program.md           # AI agent instructions for the research loop
 │   └── results.tsv          # Running experiment log
 ├── app/
