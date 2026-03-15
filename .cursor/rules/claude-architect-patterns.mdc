@@ -1,0 +1,111 @@
+---
+description: Claude Architect patterns — agentic loops, multi-agent, tools, MCP, Claude Code, prompts, context. Apply when building agents, tools, MCP, or prompts.
+alwaysApply: true
+---
+
+# Claude Architect Patterns
+
+Use when designing or implementing agentic systems, tools, MCP, Claude Code config, or prompts. Based on Claude Certified Architect (Foundations) exam domains.
+
+---
+
+## 1. Agentic loops (Domain 1)
+
+- **Drive the loop from `stop_reason`**: `stop_reason === "tool_use"` → run tools, append results to history, send back. `stop_reason === "end_turn"` → done. Append tool results so the model can reason on the next turn.
+- **Anti-patterns (reject on sight):** (1) Parsing natural language to determine loop end ("I'm done"). (2) Arbitrary iteration caps as primary stop. (3) Using presence of assistant text as completion — model can return text and `tool_use` together.
+- Prefer **model-driven** tool choice for flexibility; use **programmatic enforcement** for critical business logic (see Enforcement).
+
+---
+
+## 2. Multi-agent orchestration (Domain 1)
+
+- **Hub-and-spoke:** Coordinator at centre; subagents invoked for specialised tasks. All communication through coordinator; subagents never talk to each other.
+- **Isolation:** Subagents do NOT inherit coordinator history and do NOT share memory between invocations. Pass every needed piece of context explicitly in the subagent prompt.
+- **Coordinator:** Task decomposition, which subagents to invoke, context passing, aggregating results, error handling, iterative refinement (evaluate for gaps, re-delegate, re-invoke).
+- **Narrow decomposition:** Missing whole areas (e.g. only solar/wind) → fix coordinator decomposition, not downstream agents. Trace failures to origin.
+- **Task tool:** Coordinator’s `allowedTools` must include "Task" to spawn subagents. Each subagent has AgentDefinition (description, system prompt, tool restrictions). Emit multiple Task calls in one response to spawn in parallel (lower latency).
+- **Context passing:** Include prior agents’ findings in the subagent prompt; use structured data with metadata (source URLs, document names, page numbers) for attribution. Coordinator prompts: goals and quality criteria, not step-by-step procedures.
+- **fork_session:** Independent branches from a shared baseline; use for divergent approaches (e.g. comparing two strategies from same analysis).
+
+---
+
+## 3. Enforcement & handoff (Domain 1)
+
+- **High stakes (financial, security, compliance):** Programmatic enforcement — prerequisite gates, hooks, tool-call interception. Prompts alone have a non-zero failure rate.
+- **Low stakes (style, formatting):** Prompt-based guidance is fine.
+- **PostToolUse hooks:** Normalise tool results before the model sees them (e.g. timestamps → ISO 8601, status codes → human-readable). Use for heterogeneous MCP outputs.
+- **Tool-call interception:** Block policy violations before execution (e.g. refund above $500 → human escalation). Hooks = deterministic; prompts = probabilistic.
+- **Multi-concern requests:** Decompose into distinct items, investigate in parallel with shared context, synthesise one resolution.
+- **Handoff to human:** Compile self-contained summary: customer ID, conversation summary, root cause, refund amount if applicable, recommended action. Human does NOT get the raw transcript.
+
+---
+
+## 4. Decomposition & sessions (Domain 1)
+
+- **Fixed sequential pipeline:** Predetermined steps (e.g. per-file analysis then cross-file pass). Best for code review, document processing. Reliable; cannot adapt to surprises.
+- **Dynamic adaptive:** Subtasks generated from what’s discovered. Best for open-ended investigation. Adapts; less predictable.
+- **Attention dilution:** One pass over many files → inconsistent depth. Fix: per-file local passes plus a separate cross-file integration pass.
+- **Session options:** `--resume <name>` when context still valid; `fork_session` for divergent paths; **fresh start with summary injection** when tool results are stale or files changed.
+- **Stale context:** After code changes, inform the agent about specific file changes for targeted re-analysis, or start fresh with an injected summary; don’t rely on resumed stale tool results.
+
+---
+
+## 5. Tool design (Domain 2)
+
+- **Descriptions are the primary mechanism for tool selection.** Include: purpose, inputs (formats, constraints), example queries, edge cases, when to use this tool vs similar ones. Vague or overlapping descriptions cause misrouting; fix descriptions first — not few-shot, not routing classifiers, not consolidation.
+- **Tool splitting:** Replace one generic tool with purpose-specific tools (e.g. `analyze_document` → `extract_data_points`, `summarize_content`, `verify_claim_against_source`).
+- **Scope per agent:** ~4–5 tools per agent, role-specific. Synthesis agent shouldn’t have web search; search agent shouldn’t have document analysis. Avoid 15+ tools on one agent.
+- **tool_choice:** `auto` (may return text), `any` (must call a tool, picks which), `{"type":"tool","name":"..."}` (must call this tool — use for mandatory first steps).
+- **Scoped cross-role tools:** For high-frequency simple ops (e.g. simple fact checks), give the agent a constrained tool (e.g. `verify_fact`) to avoid coordinator round-trips; keep complex flows via coordinator.
+- **Constrained alternatives:** Prefer e.g. `load_document` (validated URLs) over `fetch_url` (anything) for subagents. Review system prompts for keyword clashes with tool descriptions.
+
+---
+
+## 6. Structured errors & MCP config (Domain 2)
+
+- **Error categories:** Transient (retryable), Validation (fix input, retry), Business (not retryable, alternative workflow), Permission (escalation/credentials). Use structured metadata: errorCategory, isRetryable, human-readable message.
+- **Access failure vs valid empty result:** Access failure = tool couldn’t reach source (timeout, auth) → consider retry. Valid empty = query succeeded, no matches → do NOT retry; that is the answer. Confusing them breaks recovery.
+- **Multi-agent errors:** Subagents handle transient locally; propagate only what they can’t resolve; include partial results and what was attempted.
+- **MCP:** Project-level `.mcp.json` (version-controlled, shared); user-level `~/.claude.json` (personal). Use `${GITHUB_TOKEN}` etc. in .mcp.json for secrets. Expose catalogs as MCP resources to reduce exploratory calls. Prefer community servers (Jira, GitHub, Slack); build custom only for team-specific workflows. Strengthen MCP tool descriptions so the agent doesn’t over-prefer built-ins (e.g. Grep).
+
+---
+
+## 7. Built-in tools (Domain 2)
+
+- **Grep:** file contents (callers, error strings, imports). **Glob:** file paths by pattern (`**/*.test.tsx`, config files). Use the right one.
+- **Edit:** targeted changes with unique text; fast. If Edit fails (non-unique match), fall back to **Read** full file + **Write** full modified file.
+- **Incremental exploration:** Grep for entry points → Read to follow imports; don’t read everything upfront. Export names first, then search for each across the codebase.
+
+---
+
+## 8. Claude Code config (Domain 3)
+
+- **CLAUDE.md hierarchy:** User `~/.claude/CLAUDE.md` = you only, not version-controlled (new teammates don’t get it). Project `.claude/CLAUDE.md` or root `CLAUDE.md` = shared, team-wide. Directory-level = when working in that directory. If a teammate “doesn’t get instructions”, check they’re in project-level, not user-level.
+- **Path-specific rules:** `.claude/rules/` with YAML frontmatter `paths: ["**/*.test.tsx"]` — rules load only when editing matching files. Use for conventions that span many directories (e.g. all test files); directory CLAUDE.md is directory-bound. Use `/memory` to verify what’s loaded.
+- **Commands vs skills:** `.claude/commands/` = project, shared; `~/.claude/commands/` = personal. `.claude/skills/` with SKILL.md = on-demand workflows. Skills: `context: fork` (isolate noisy output), `allowed-tools`, `argument-hint`. CLAUDE.md = always-loaded standards; skills = task-specific. Don’t put task procedures in CLAUDE.md or universal standards in skills.
+- **Plan mode vs direct execution:** Plan = large-scale/architectural/multi-file, multiple valid approaches. Direct = single-file, clear scope, known approach (e.g. one bug fix). Use Explore subagent to keep discovery output out of main context.
+- **Iterative refinement:** Concrete input/output examples beat prose. Test-driven iteration; interview pattern (Claude asks before implementing). Batch feedback when fixes interact; sequence when independent.
+- **CI/CD:** Use `-p` (non-interactive/print mode) or CI hangs. `--output-format json` + `--json-schema` for structured findings. Independent review instance catches more than self-review in same session. Include prior review findings and ask for only new or still-unaddressed issues. Document test standards in CLAUDE.md for CI-invoked test generation.
+
+---
+
+## 9. Prompting & structured output (Domain 4)
+
+- **Explicit criteria:** Replace “be conservative” / “high-confidence only” with concrete rules and code examples per severity. High false positives in one category hurt trust in all; temporarily disable that category while improving prompts.
+- **Few-shot:** 2–4 examples for ambiguous cases, with reasoning for why one action was chosen. Best for consistency and reducing extraction gaps/hallucination.
+- **tool_use + JSON schema:** Removes syntax errors; does NOT remove semantic errors (wrong field, fabrication, totals that don’t sum). Use optional/nullable fields when source may lack data; include `"unclear"` / `"other"` + detail in enums.
+- **Validation-retry:** Send original doc + failed extraction + validation error. Effective for format/structure/misplaced values; ineffective when information is genuinely absent. Add `detected_pattern` (or similar) to analyse dismissals and improve prompts.
+- **Batch API:** ~50% cost savings, up to 24h, no latency SLA, no multi-turn tool use; use `custom_id` to correlate. Use **synchronous** for blocking (pre-merge); use **batch** for latency-tolerant (overnight reports, audits). On failure, resubmit only failed items (e.g. by custom_id) with fixes (e.g. chunking).
+- **Multi-instance review:** Same session self-review is less critical; use an independent instance for code review. Multi-pass: per-file analysis + separate cross-file pass to avoid attention dilution.
+
+---
+
+## 10. Context & reliability (Domain 5)
+
+- **Case facts:** Extract amounts, dates, order IDs, customer expectations into a persistent block; include in every prompt; never summarise away. Progressive summarisation destroys transactional data.
+- **Lost in the middle:** Put key summaries at the beginning; use clear section headers. Trim verbose tool results to needed fields before appending. Include full conversation history in each request.
+- **Escalation — use:** Customer explicitly requests human (honour immediately); policy gap; inability to progress. **Unreliable:** Sentiment; self-reported confidence. If customer says “I want a human”, escalate immediately. For ambiguous customer match (multiple results), ask for more identifiers; don’t pick by heuristic (e.g. most recent).
+- **Error propagation:** Pass failure type, what was attempted, partial results, alternatives. Avoid silent empty success and killing the whole workflow on one failure.
+- **Provenance:** Structured claim–source (claim + URL + document + excerpt + date); preserve through synthesis. Conflicting sources: annotate both values with attribution; don’t pick one arbitrarily. Require dates in outputs for temporal clarity. Render by content type (tables for financial, prose for news, lists for technical).
+- **Long sessions:** Use scratchpad files, subagent delegation, summary injection, or /compact to avoid context degradation. Crash recovery: export state to a manifest; on resume, load and inject into prompts.
+- **Calibration:** Validate by document type and field; aggregate accuracy can hide high error rates in one segment. Use stratified sampling and field-level confidence with labelled data; route low-confidence to human review.
