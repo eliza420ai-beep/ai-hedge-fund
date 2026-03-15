@@ -260,11 +260,23 @@ def calculate_volatility_metrics(prices_df: pd.DataFrame, lookback_days: int = 6
         current_vol_percentile = 50  # Default to median if insufficient data
     
     return {
-        "daily_volatility": float(daily_vol) if not np.isnan(daily_vol) else 0.025,
-        "annualized_volatility": float(annualized_vol) if not np.isnan(annualized_vol) else 0.25,
-        "volatility_percentile": float(current_vol_percentile) if not np.isnan(current_vol_percentile) else 50.0,
+        "daily_volatility": _to_float(daily_vol, 0.025),
+        "annualized_volatility": _to_float(annualized_vol, 0.25),
+        "volatility_percentile": _to_float(current_vol_percentile, 50.0),
         "data_points": len(recent_returns)
     }
+
+
+def _to_float(x, default: float = 0.0) -> float:
+    """Coerce to Python float; use real part if complex (avoids float vs complex comparison errors)."""
+    if x is None or (isinstance(x, float) and np.isnan(x)):
+        return default
+    try:
+        if hasattr(x, "real"):
+            return float(x.real)
+        return float(x)
+    except (TypeError, ValueError):
+        return default
 
 
 def calculate_volatility_adjusted_limit(annualized_volatility: float) -> float:
@@ -278,16 +290,17 @@ def calculate_volatility_adjusted_limit(annualized_volatility: float) -> float:
     - Very high volatility (>50%): Max 10% allocation
     """
     base_limit = 0.20  # 20% baseline
-    
-    if annualized_volatility < 0.15:  # Low volatility
+    vol = _to_float(annualized_volatility, 0.25)
+
+    if vol < 0.15:  # Low volatility
         # Allow higher allocation for stable stocks
         vol_multiplier = 1.25  # Up to 25%
-    elif annualized_volatility < 0.30:  # Medium volatility  
+    elif vol < 0.30:  # Medium volatility  
         # Standard allocation with slight adjustment based on volatility
-        vol_multiplier = 1.0 - (annualized_volatility - 0.15) * 0.5  # 20% -> 12.5%
-    elif annualized_volatility < 0.50:  # High volatility
+        vol_multiplier = 1.0 - (vol - 0.15) * 0.5  # 20% -> 12.5%
+    elif vol < 0.50:  # High volatility
         # Reduce allocation significantly
-        vol_multiplier = 0.75 - (annualized_volatility - 0.30) * 0.5  # 15% -> 5%
+        vol_multiplier = 0.75 - (vol - 0.30) * 0.5  # 15% -> 5%
     else:  # Very high volatility (>50%)
         # Minimum allocation for very risky stocks
         vol_multiplier = 0.50  # Max 10%
@@ -306,12 +319,13 @@ def calculate_correlation_multiplier(avg_correlation: float) -> float:
     - Low correlation (0.2-0.4): slight increase (1.05x)
     - Very low correlation (< 0.2): increase (1.10x)
     """
-    if avg_correlation >= 0.80:
+    corr = _to_float(avg_correlation, 0.0)
+    if corr >= 0.80:
         return 0.70
-    if avg_correlation >= 0.60:
+    if corr >= 0.60:
         return 0.85
-    if avg_correlation >= 0.40:
+    if corr >= 0.40:
         return 1.00
-    if avg_correlation >= 0.20:
+    if corr >= 0.20:
         return 1.05
     return 1.10

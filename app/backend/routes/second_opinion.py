@@ -2,6 +2,10 @@ from fastapi import APIRouter, HTTPException, BackgroundTasks, Depends
 from fastapi.encoders import jsonable_encoder
 from sqlalchemy.orm import Session
 import asyncio
+import logging
+import traceback
+
+logger = logging.getLogger(__name__)
 
 from app.backend.database import get_db, SessionLocal
 from app.backend.database.models import HedgeFundFlowRun
@@ -122,6 +126,8 @@ async def _execute_second_opinion_run(flow_run_id: int, request_data: dict) -> N
             error_message=None,
         )
     except Exception as e:
+        tb = traceback.format_exc()
+        logger.error("Second-opinion run %s failed:\n%s", flow_run_id, tb)
         try:
             db.rollback()
         except Exception:
@@ -130,7 +136,7 @@ async def _execute_second_opinion_run(flow_run_id: int, request_data: dict) -> N
             run_id=flow_run_id,
             status=FlowRunStatus.ERROR,
             results=None,
-            error_message=str(e),
+            error_message=f"{e}\n\nTraceback:\n{tb}",
         )
     finally:
         db.close()

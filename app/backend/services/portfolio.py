@@ -37,6 +37,8 @@ def create_portfolio(initial_cash: float, margin_requirement: float, tickers: li
             
             # Ensure ticker exists in portfolio (it should from tickers list)
             if ticker in portfolio["positions"]:
+                quantity = float(quantity.real) if isinstance(quantity, complex) else float(quantity)
+                trade_price = float(trade_price.real) if isinstance(trade_price, complex) else float(trade_price)
                 if quantity > 0:
                     # Positive quantity means long position
                     portfolio["positions"][ticker]["long"] = quantity

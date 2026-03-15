@@ -203,6 +203,16 @@ When evaluating a ticker, ask in this order:
 
 Use this thesis to keep the portfolio concentrated, non-redundant, and structurally aligned with the AI buildout rather than drifting into generic quality-stock ownership.
 
+## Committee Disagreements (Run 21, March 15 2026)
+
+The 18-agent committee (gpt-4.1) confirmed all Tier A choke points and platform winners at HOLD/BUY. Two named positions drew SHORT calls:
+
+- **ORCL** (Tier B, Hyperliquid) — SHORT 85%. Committee bearish despite AI software thesis. PLTR (same sub-group) confirmed HOLD 75%. Review whether Oracle’s AI narrative holds vs. valuation risk.
+- **LITE** (Tier C, Tastytrade) — SHORT 95%. Strongest bearish conviction in the run. Satellite position; consider whether optics exposure is worth keeping at any size.
+- **WDC** (Tier B, Tastytrade) — HOLD but 0.0% weight. Committee effectively refused to size it. Peer STX got normal weight at HOLD 75%.
+
+No changes to the thesis at this time. Monitor these three names for confirmation.
+
 ╭─────────────────────────────────────────────────────────────────────────────────╮
 ║  Two sleeves.  Distinct jobs.  Choke points over clutter.  The benchmark.      ║
 ╰─────────────────────────────────────────────────────────────────────────────────╯

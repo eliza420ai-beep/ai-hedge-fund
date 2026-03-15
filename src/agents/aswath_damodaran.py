@@ -155,7 +155,7 @@ def analyze_growth_and_reinvestment(metrics: list, line_items: list) -> dict[str
 
     # Revenue CAGR (oldest to latest)
     revs = [m.revenue for m in reversed(metrics) if hasattr(m, "revenue") and m.revenue]
-    if len(revs) >= 2 and revs[0] > 0:
+    if len(revs) >= 2 and revs[0] > 0 and revs[-1] > 0:
         cagr = (revs[-1] / revs[0]) ** (1 / (len(revs) - 1)) - 1
     else:
         cagr = None
@@ -302,8 +302,9 @@ def calculate_intrinsic_value_dcf(metrics: list, line_items: list, risk_analysis
 
     # Growth assumptions
     revs = [m.revenue for m in reversed(metrics) if m.revenue]
-    if len(revs) >= 2 and revs[0] > 0:
-        base_growth = min((revs[-1] / revs[0]) ** (1 / (len(revs) - 1)) - 1, 0.12)
+    if len(revs) >= 2 and revs[0] > 0 and revs[-1] > 0:
+        ratio = revs[-1] / revs[0]
+        base_growth = min(ratio ** (1 / (len(revs) - 1)) - 1, 0.12)
     else:
         base_growth = 0.04  # fallback
 

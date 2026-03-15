@@ -14,16 +14,18 @@ from src.utils.progress import progress
 
 def safe_float(value, default=0.0):
     """
-    Safely convert a value to float, handling NaN cases
+    Safely convert a value to float, handling NaN and complex cases.
     
     Args:
-        value: The value to convert (can be pandas scalar, numpy value, etc.)
+        value: The value to convert (can be pandas scalar, numpy value, complex, etc.)
         default: Default value to return if the input is NaN or invalid
     
     Returns:
-        float: The converted value or default if NaN/invalid
+        float: The converted value or default if NaN/invalid/complex
     """
     try:
+        if isinstance(value, complex):
+            return float(value.real)
         if pd.isna(value) or np.isnan(value):
             return default
         return float(value)
@@ -174,7 +176,7 @@ def calculate_trend_signals(prices_df):
     medium_trend = ema_21 > ema_55
 
     # Combine signals with confidence weighting
-    trend_strength = adx["adx"].iloc[-1] / 100.0
+    trend_strength = safe_float(adx["adx"].iloc[-1] / 100.0, 0.5)
 
     if short_trend.iloc[-1] and medium_trend.iloc[-1]:
         signal = "bullish"
@@ -213,15 +215,20 @@ def calculate_mean_reversion_signals(prices_df):
     rsi_28 = calculate_rsi(prices_df, 28)
 
     # Mean reversion signals
-    price_vs_bb = (prices_df["close"].iloc[-1] - bb_lower.iloc[-1]) / (bb_upper.iloc[-1] - bb_lower.iloc[-1])
+    bb_range = bb_upper.iloc[-1] - bb_lower.iloc[-1]
+    price_vs_bb = safe_float(
+        (prices_df["close"].iloc[-1] - bb_lower.iloc[-1]) / bb_range if bb_range != 0 else 0.5,
+        0.5,
+    )
 
     # Combine signals
-    if z_score.iloc[-1] < -2 and price_vs_bb < 0.2:
+    z_last = safe_float(z_score.iloc[-1], 0.0)
+    if z_last < -2 and price_vs_bb < 0.2:
         signal = "bullish"
-        confidence = min(abs(z_score.iloc[-1]) / 4, 1.0)
-    elif z_score.iloc[-1] > 2 and price_vs_bb > 0.8:
+        confidence = min(abs(z_last) / 4, 1.0)
+    elif z_last > 2 and price_vs_bb > 0.8:
         signal = "bearish"
-        confidence = min(abs(z_score.iloc[-1]) / 4, 1.0)
+        confidence = min(abs(z_last) / 4, 1.0)
     else:
         signal = "neutral"
         confidence = 0.5
@@ -256,10 +263,10 @@ def calculate_momentum_signals(prices_df):
     # (would compare to market/sector in real implementation)
 
     # Calculate momentum score
-    momentum_score = (0.4 * mom_1m + 0.3 * mom_3m + 0.3 * mom_6m).iloc[-1]
+    momentum_score = safe_float((0.4 * mom_1m + 0.3 * mom_3m + 0.3 * mom_6m).iloc[-1], 0.0)
 
     # Volume confirmation
-    volume_confirmation = volume_momentum.iloc[-1] > 1.0
+    volume_confirmation = safe_float(volume_momentum.iloc[-1], 1.0) > 1.0
 
     if momentum_score > 0.05 and volume_confirmation:
         signal = "bullish"
@@ -305,8 +312,8 @@ def calculate_volatility_signals(prices_df):
     atr_ratio = atr / prices_df["close"]
 
     # Generate signal based on volatility regime
-    current_vol_regime = vol_regime.iloc[-1]
-    vol_z = vol_z_score.iloc[-1]
+    current_vol_regime = safe_float(vol_regime.iloc[-1], 1.0)
+    vol_z = safe_float(vol_z_score.iloc[-1], 0.0)
 
     if current_vol_regime < 0.8 and vol_z < -1:
         signal = "bullish"  # Low vol regime, potential for expansion
@@ -342,16 +349,17 @@ def calculate_stat_arb_signals(prices_df):
     kurt = returns.rolling(63).kurt()
 
     # Test for mean reversion using Hurst exponent
-    hurst = calculate_hurst_exponent(prices_df["close"])
+    hurst = safe_float(calculate_hurst_exponent(prices_df["close"]), 0.5)
 
     # Correlation analysis
     # (would include correlation with related securities in real implementation)
 
     # Generate signal based on statistical properties
-    if hurst < 0.4 and skew.iloc[-1] > 1:
+    skew_last = safe_float(skew.iloc[-1], 0.0)
+    if hurst < 0.4 and skew_last > 1:
         signal = "bullish"
         confidence = (0.5 - hurst) * 2
-    elif hurst < 0.4 and skew.iloc[-1] < -1:
+    elif hurst < 0.4 and skew_last < -1:
         signal = "bearish"
         confidence = (0.5 - hurst) * 2
     else:
@@ -525,7 +533,9 @@ def calculate_hurst_exponent(price_series: pd.Series, max_lag: int = 20) -> floa
     # Return the Hurst exponent from linear fit
     try:
         reg = np.polyfit(np.log(lags), np.log(tau), 1)
-        return reg[0]  # Hurst exponent is the slope
-    except (ValueError, RuntimeWarning):
-        # Return 0.5 (random walk) if calculation fails
+        h = reg[0]
+        if isinstance(h, complex):
+            return float(h.real)
+        return float(h)
+    except (ValueError, TypeError, RuntimeWarning):
         return 0.5

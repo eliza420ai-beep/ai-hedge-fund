@@ -223,7 +223,7 @@ def analyze_profitability(financial_line_items: list) -> dict[str, any]:
         final_eps = eps_values[0]     # Latest value
         years = len(eps_values) - 1
         
-        if initial_eps > 0:
+        if initial_eps > 0 and final_eps > 0:
             eps_cagr = ((final_eps / initial_eps) ** (1/years) - 1) * 100
             if eps_cagr > 20:  # High growth
                 score += 3
@@ -264,7 +264,7 @@ def analyze_growth(financial_line_items: list) -> dict[str, any]:
         final_revenue = revenues[0]     # Latest
         years = len(revenues) - 1
         
-        if initial_revenue > 0:  # Fixed: Add zero check
+        if initial_revenue > 0 and final_revenue > 0:
             revenue_cagr = ((final_revenue / initial_revenue) ** (1/years) - 1) * 100
             
             if revenue_cagr > 20:  # High growth
@@ -292,7 +292,7 @@ def analyze_growth(financial_line_items: list) -> dict[str, any]:
         final_income = net_incomes[0]     # Latest
         years = len(net_incomes) - 1
         
-        if initial_income > 0:  # Fixed: Add zero check
+        if initial_income > 0 and final_income > 0:
             income_cagr = ((final_income / initial_income) ** (1/years) - 1) * 100
             
             if income_cagr > 25:  # Very high growth
@@ -527,7 +527,7 @@ def calculate_intrinsic_value(financial_line_items: list, market_cap: float) -> 
         years = len(net_incomes) - 1
         
         # Calculate historical CAGR
-        if initial_income > 0:  # Fixed: Add zero check
+        if initial_income > 0 and final_income > 0:
             historical_growth = ((final_income / initial_income) ** (1/years) - 1)
         else:
             historical_growth = 0.05  # Default to 5%

@@ -313,11 +313,13 @@ def analyze_moat(metrics: list) -> dict[str, any]:
         # Calculate coefficient of variation (stability measure)
         roe_avg = sum(historical_roes) / len(historical_roes)
         roe_variance = sum((roe - roe_avg) ** 2 for roe in historical_roes) / len(historical_roes)
-        roe_stability = 1 - (roe_variance ** 0.5) / roe_avg if roe_avg > 0 else 0
+        roe_std = float(abs(roe_variance) ** 0.5)
+        roe_stability = 1 - roe_std / roe_avg if roe_avg > 0 else 0
 
         margin_avg = sum(historical_margins) / len(historical_margins)
         margin_variance = sum((margin - margin_avg) ** 2 for margin in historical_margins) / len(historical_margins)
-        margin_stability = 1 - (margin_variance ** 0.5) / margin_avg if margin_avg > 0 else 0
+        margin_std = float(abs(margin_variance) ** 0.5)
+        margin_stability = 1 - margin_std / margin_avg if margin_avg > 0 else 0
 
         overall_stability = (roe_stability + margin_stability) / 2
 
@@ -541,7 +543,7 @@ def calculate_intrinsic_value(financial_line_items: list) -> dict[str, any]:
         latest_earnings = historical_earnings[0]
         years = len(historical_earnings) - 1
 
-        if oldest_earnings > 0:
+        if oldest_earnings > 0 and latest_earnings > 0:
             historical_growth = ((latest_earnings / oldest_earnings) ** (1 / years)) - 1
             # Conservative adjustment - cap growth and apply haircut
             historical_growth = max(-0.05, min(historical_growth, 0.15))  # Cap between -5% and 15%

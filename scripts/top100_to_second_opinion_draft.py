@@ -84,6 +84,12 @@ def main() -> int:
         help="Cap number of tickers (default: no cap). Useful for quicker runs.",
     )
     parser.add_argument(
+        "--offset",
+        type=int,
+        default=0,
+        help="Skip the first N tickers (use with --max-tickers for batching, e.g. --offset 10 --max-tickers 10 for batch 2).",
+    )
+    parser.add_argument(
         "--sleeve",
         type=str,
         default="bench_top100",
@@ -102,6 +108,8 @@ def main() -> int:
         return 1
 
     tickers = parse_tickers_from_top100(args.top100)
+    if args.offset:
+        tickers = tickers[args.offset:]
     if args.max_tickers is not None:
         tickers = tickers[: args.max_tickers]
     if not tickers:
