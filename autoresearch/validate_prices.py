@@ -7,6 +7,26 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 CACHE_DIR = Path(__file__).resolve().parent / "cache"
+PRICE_SUMMARY_METADATA_KEYS = {
+    "as_of",
+    "per_ticker",
+    "meta",
+    "metadata",
+    "source_path",
+    "data_type",
+    "date_range",
+    "tickers",
+    "file",
+}
+
+
+def _is_price_summary_payload(raw: object) -> bool:
+    """Return True for lightweight summary JSONs, not raw ticker candle caches."""
+    return (
+        isinstance(raw, dict)
+        and "per_ticker" in raw
+        and isinstance(raw.get("per_ticker"), dict)
+    )
 
 
 def validate_prices(
@@ -24,7 +44,7 @@ def validate_prices(
     if prices_path:
         paths = [Path(prices_path)]
     elif all_caches:
-        paths = list(CACHE_DIR.glob("prices*.json"))
+        paths = [p for p in CACHE_DIR.glob("prices*.json") if not p.name.endswith("_l1.json")]
     else:
         paths = [CACHE_DIR / "prices.json"]
     if not paths:
@@ -41,7 +61,16 @@ def validate_prices(
         except Exception as e:
             msgs.append(f"Failed to load {path}: {e}")
             continue
+        if _is_price_summary_payload(raw):
+            continue
+        if not isinstance(raw, dict):
+            msgs.append(f"{path.name}: unexpected file shape ({type(raw).__name__})")
+            continue
         for ticker, recs in raw.items():
+            if ticker in PRICE_SUMMARY_METADATA_KEYS:
+                continue
+            if not isinstance(recs, list):
+                continue
             if not recs or not isinstance(recs[0], dict):
                 continue
             dates = [r["date"] for r in recs if isinstance(r.get("date"), str)]

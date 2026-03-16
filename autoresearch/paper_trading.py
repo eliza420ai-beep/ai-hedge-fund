@@ -12,6 +12,7 @@ Usage:
 
 import argparse
 import asyncio
+import math
 import sys
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -36,6 +37,42 @@ from autoresearch.cache_worldmonitor import format_worldmonitor_status_line
 def _format_worldmonitor_status_line(enabled: bool) -> str:
     """Return a concise audit line for WM snapshot state."""
     return format_worldmonitor_status_line(enabled=enabled, prefix="  World Monitor:")
+
+
+def _apply_min_notional_targets(
+    target_positions: dict[str, int],
+    prices_by_ticker: dict[str, float],
+    *,
+    min_notional_usd: float,
+    target_notional_pct: float,
+    initial_cash: float,
+) -> int:
+    """
+    Raise tiny target positions up to a minimum dollar size.
+
+    Safety caps such as max ticker weight still run after this step, so this is
+    a sizing floor, not an override of the portfolio's risk rails.
+    """
+    desired_notional = max(
+        float(min_notional_usd or 0.0),
+        float(initial_cash) * float(target_notional_pct or 0.0),
+    )
+    if desired_notional <= 0:
+        return 0
+
+    adjusted = 0
+    for ticker, qty in list(target_positions.items()):
+        price = prices_by_ticker.get(ticker, 0.0)
+        if qty <= 0 or price <= 0:
+            continue
+        current_notional = qty * price
+        if current_notional >= desired_notional:
+            continue
+        min_qty = math.ceil(desired_notional / price)
+        if min_qty > qty:
+            target_positions[ticker] = min_qty
+            adjusted += 1
+    return adjusted
 
 
 def _get_broker(live: bool, state_path: str, initial_cash: float, slippage_bps: float):
@@ -116,6 +153,18 @@ def main():
     parser.add_argument("--lookback-days", type=int, default=10, help="Backtest lookback for signal generation (default 10)")
     parser.add_argument("--max-ticker-weight", type=float, default=0.15, help="Max weight per ticker (0.15 = 15%%, 0 = no cap)")
     parser.add_argument("--vol-weight", action="store_true", help="Use inverse-volatility (risk parity) position sizing")
+    parser.add_argument(
+        "--min-notional-per-trade-usd",
+        type=float,
+        default=3000.0,
+        help="Minimum desired notional per BUY target before safety caps (0 disables, default 3000)",
+    )
+    parser.add_argument(
+        "--target-notional-pct",
+        type=float,
+        default=0.0,
+        help="Optional minimum target as %% of portfolio cash (0.03 = 3%%). Uses the larger of this and --min-notional-per-trade-usd.",
+    )
     parser.add_argument("--slippage-bps", type=float, default=5.0, help="Paper only: simulated slippage in bps")
     parser.add_argument("--max-drawdown-pct", type=float, default=0, help="Halt if portfolio DD exceeds this %% (e.g. 15)")
     parser.add_argument("--stop-loss-pct", type=float, default=0, help="Trim position if unrealized loss exceeds this %% (e.g. 10)")
@@ -178,6 +227,10 @@ def main():
             )
         conf_str = f" confidence={regime_confidence:.2f}" if regime_confidence is not None else ""
         print(f"  Regime: {regime} (scale={regime_scale_factor:.2f}{conf_str})")
+    if args.min_notional_per_trade_usd > 0 or args.target_notional_pct > 0:
+        pct_floor = args.initial_cash * args.target_notional_pct
+        floor = max(args.min_notional_per_trade_usd, pct_floor)
+        print(f"  Min trade target: ${floor:,.0f} notional before caps")
 
     sector_positions = {}
     sector_engines = {}
@@ -260,6 +313,17 @@ def main():
         for o in all_orders:
             if o["side"] == "BUY":
                 o["quantity"] = target_positions.get(o["ticker"], 0)
+    floor_adjusted = 0
+    if target_positions and prices_by_ticker:
+        floor_adjusted = _apply_min_notional_targets(
+            target_positions,
+            prices_by_ticker,
+            min_notional_usd=args.min_notional_per_trade_usd,
+            target_notional_pct=args.target_notional_pct,
+            initial_cash=args.initial_cash,
+        )
+        if floor_adjusted:
+            print(f"  Raised {floor_adjusted} BUY targets to the minimum notional floor before caps")
     if args.max_ticker_weight > 0 and target_positions and prices_by_ticker:
         total_value = sum(target_positions.get(t, 0) * prices_by_ticker.get(t, 0) for t in target_positions)
         if total_value > 0:
@@ -278,7 +342,12 @@ def main():
     print("-" * 50)
     print("Suggested orders (dry run):")
     for o in all_orders:
-        print(f"  {o['side']:5} {o['quantity']:4} {o['ticker']:6} ({o['sector']}, weight {o['weight']})")
+        price = prices_by_ticker.get(o["ticker"], 0.0)
+        notional = o["quantity"] * price if price > 0 else 0.0
+        print(
+            f"  {o['side']:5} {o['quantity']:4} {o['ticker']:6} "
+            f"(${notional:,.0f}, {o['sector']}, weight {o['weight']})"
+        )
 
     if args.execute:
         state_path = Path(args.state_path)
