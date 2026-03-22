@@ -28,6 +28,8 @@ The AI buildout is still the dominant industrial and software capex cycle of thi
 
 The point is not to own "everything AI." The point is to own the **highest-conviction choke points** with minimal redundancy.
 
+**Operational map:** How this thesis is turned into runnable workflows in the AI Hedge Fund repo—autoresearch, second-opinion API, scripts vs dashboard—is documented in [docs/AGENT_FIRST_SURFACE.md](docs/AGENT_FIRST_SURFACE.md).
+
 ## Sleeve 1: Tastytrade
 
 ### Job

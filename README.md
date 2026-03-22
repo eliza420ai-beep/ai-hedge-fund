@@ -64,6 +64,8 @@ It also includes a full backtester, so you can run the system against historical
 
 In our workflow, [Dexter](https://github.com/eliza420ai-beep/dexter) is the primary thesis-driven researcher: it reads `SOUL.md`, builds the sleeves, and defines the bar for what the portfolio is supposed to do. AI Hedge Fund is the second-opinion engine. It runs 18 analyst agents plus risk and portfolio management against the same names so conviction gets challenged before it gets trusted.
 
+Maintainer note: how this repo is meant to be **invoked by humans vs. coding agents and scripts** (dashboard vs CLIs vs API) is summarized in [docs/AGENT_FIRST_SURFACE.md](docs/AGENT_FIRST_SURFACE.md).
+
 > **Disclaimer** — This project is for **educational and research purposes only**. Not financial advice. No guarantees. Options and leveraged perpetuals carry substantial risk of loss. See [full disclaimer](#disclaimer).
 
 ### Data Layer TL;DR (New)
